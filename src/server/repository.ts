@@ -66,6 +66,13 @@ class JsonDatabaseRepository implements DatabaseRepository {
   }
 
   async checkHealth() {
+    if (process.env.VERCEL) {
+      return {
+        ok: false,
+        database: 'local-json' as const,
+        detail: 'TURSO_DATABASE_URL atau TURSO_AUTH_TOKEN belum terbaca di environment Vercel.',
+      };
+    }
     readDb();
     return { ok: true, database: 'local-json' as const };
   }
@@ -86,6 +93,11 @@ class JsonDatabaseRepository implements DatabaseRepository {
   }
 
   async createUser(user: StoredUser): Promise<StoredUser> {
+    if (process.env.VERCEL) {
+      throw new Error(
+        'Database Turso belum aktif di Vercel. Pastikan TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN sudah diset di Vercel Environment Variables lalu Redeploy.'
+      );
+    }
     const db = readDb();
     db.users.push(user);
     writeDb(db);

@@ -47,7 +47,9 @@ async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> 
   });
 
   if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({ error: 'Terjadi kesalahan pada server.' }));
+    const errorBody = await res
+      .json()
+      .catch(() => ({ error: `Terjadi kesalahan pada server (HTTP ${res.status}).` }));
     throw new Error(errorBody.error || `HTTP error ${res.status}`);
   }
 
