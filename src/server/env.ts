@@ -48,12 +48,9 @@ export function loadEnvFiles(): void {
 }
 
 export interface DatabaseConfig {
-  mode: 'turso' | 'supabase' | 'local-json';
+  mode: 'turso' | 'local-json';
   tursoUrl?: string;
   tursoAuthToken?: string;
-  supabaseUrl?: string;
-  supabaseKey?: string;
-  usingServiceRole: boolean;
 }
 
 function normalizeTursoHttpUrl(rawUrl: string): string {
@@ -76,28 +73,11 @@ export function getDatabaseConfig(): DatabaseConfig {
       mode: 'turso',
       tursoUrl: normalizeTursoHttpUrl(rawTursoUrl),
       tursoAuthToken,
-      usingServiceRole: false,
     };
   }
 
-  // 2. Alternatif: Supabase
-  const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const anonKey = process.env.SUPABASE_ANON_KEY?.trim();
-  const supabaseKey = serviceKey || anonKey;
-
-  if (supabaseUrl && supabaseKey) {
-    return {
-      mode: 'supabase',
-      supabaseUrl,
-      supabaseKey,
-      usingServiceRole: Boolean(serviceKey),
-    };
-  }
-
-  // 3. Fallback: Local JSON
+  // 2. Fallback: Local JSON
   return {
     mode: 'local-json',
-    usingServiceRole: false,
   };
 }

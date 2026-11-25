@@ -15,7 +15,7 @@ const asyncHandler =
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 
-// Health check route to verify active database (.env + Supabase vs Local JSON)
+// Health check route to verify active database (.env + Turso vs Local JSON)
 apiRouter.get(
   '/health',
   asyncHandler(async (_req: Request, res: Response) => {
