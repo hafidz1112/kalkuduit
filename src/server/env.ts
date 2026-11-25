@@ -53,8 +53,20 @@ export interface DatabaseConfig {
   tursoAuthToken?: string;
 }
 
+function cleanEnvValue(raw: string | undefined): string {
+  if (!raw) return '';
+  let val = raw.trim();
+  if (
+    (val.startsWith('"') && val.endsWith('"')) ||
+    (val.startsWith("'") && val.endsWith("'"))
+  ) {
+    val = val.slice(1, -1).trim();
+  }
+  return val;
+}
+
 function normalizeTursoHttpUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  const trimmed = cleanEnvValue(rawUrl).replace(/\/+$/, '');
   if (trimmed.startsWith('libsql://')) {
     return `https://${trimmed.slice('libsql://'.length)}`;
   }
@@ -65,8 +77,8 @@ export function getDatabaseConfig(): DatabaseConfig {
   loadEnvFiles();
 
   // 1. Prioritas utama: Turso (libSQL)
-  const rawTursoUrl = (process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || '').trim();
-  const tursoAuthToken = (process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN || '').trim();
+  const rawTursoUrl = cleanEnvValue(process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL);
+  const tursoAuthToken = cleanEnvValue(process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN);
 
   if (rawTursoUrl && tursoAuthToken) {
     return {

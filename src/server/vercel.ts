@@ -1,5 +1,5 @@
 import express from 'express';
-import { apiRouter } from '../src/server/router';
+import { apiRouter } from './router';
 
 const app = express();
 
@@ -13,6 +13,12 @@ app.use((req, _res, next) => {
     const qs = parsed.searchParams.toString();
     req.url = `/api${cleanPath}${qs ? `?${qs}` : ''}`;
   }
+
+  // If serverless runtime already pre-parsed req.body, prevent express.json() from re-reading ended stream
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+    (req as any)._body = true;
+  }
+
   next();
 });
 
