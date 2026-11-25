@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 import { apiRouter } from './router';
 
 const app = express();
@@ -26,4 +27,13 @@ app.use(express.json());
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
 
-export default app;
+export default function handler(req: Request, res: Response) {
+  try {
+    return app(req, res);
+  } catch (err: any) {
+    console.error('Vercel Handler Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || 'Internal server error' });
+    }
+  }
+}

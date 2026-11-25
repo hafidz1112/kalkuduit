@@ -1,8 +1,8 @@
 // src/server/vercel.ts
-import express from "express";
+import express2 from "express";
 
 // src/server/router.ts
-import { Router } from "express";
+import express from "express";
 
 // src/server/env.ts
 import fs from "fs";
@@ -93,9 +93,7 @@ function generateToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-// src/lib/utils.ts
-import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+// src/lib/periodUtils.ts
 function convertMonthlyToWeekly(monthlyAmount, roundToNearestThousand = true) {
   if (!monthlyAmount || monthlyAmount <= 0) return 0;
   const weeklyRaw = monthlyAmount / 4;
@@ -1458,7 +1456,7 @@ function simulateWhatIf(currentIncome, currentNeeds, scenario, periodMode = "wee
 
 // src/server/router.ts
 loadEnvFiles();
-var apiRouter = Router();
+var apiRouter = express.Router();
 var asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
@@ -1804,7 +1802,7 @@ apiRouter.use((err, _req, res, _next) => {
 });
 
 // src/server/vercel.ts
-var app = express();
+var app = express2();
 app.use((req, _res, next) => {
   const vp = req.query.__vercel_path;
   if (typeof vp === "string") {
@@ -1819,10 +1817,19 @@ app.use((req, _res, next) => {
   }
   next();
 });
-app.use(express.json());
+app.use(express2.json());
 app.use("/api", apiRouter);
 app.use("/", apiRouter);
-var vercel_default = app;
+function handler(req, res) {
+  try {
+    return app(req, res);
+  } catch (err) {
+    console.error("Vercel Handler Error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  }
+}
 export {
-  vercel_default as default
+  handler as default
 };

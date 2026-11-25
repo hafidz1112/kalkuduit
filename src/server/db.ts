@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { User, Need, WeeklyPeriod, Transaction } from '../types';
 import { hashPassword } from './auth';
-import { getCurrentWeekPeriod, getTodayDateString } from '../lib/utils';
+import { getCurrentWeekPeriod } from '../lib/periodUtils';
 
 export interface DatabaseSchema {
   users: (User & { password_hash: string })[];

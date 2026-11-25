@@ -1,4 +1,5 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { loadEnvFiles } from './env';
 import { getDbRepository } from './repository';
 import { hashPassword, verifyPassword, generateToken } from './auth';
@@ -7,7 +8,7 @@ import { Need, PeriodMode, Transaction, WeeklyPeriod } from '../types';
 
 loadEnvFiles();
 
-export const apiRouter = Router();
+export const apiRouter = express.Router();
 
 const asyncHandler =
   (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>

@@ -10,7 +10,7 @@ import {
   WhatIfScenario,
   WhatIfSimulationResult
 } from '../types';
-import { convertMonthlyToWeekly, convertWeeklyToMonthly } from './utils';
+import { convertMonthlyToWeekly, convertWeeklyToMonthly } from './periodUtils';
 
 /**
  * Determine the active allocation mode of a need
