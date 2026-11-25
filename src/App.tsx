@@ -1,26 +1,29 @@
 import React, { useState } from 'react';
 import { useAuth } from './context/AuthContext';
-import { Navbar } from './components/Navbar';
-import { MobileNav } from './components/MobileNav';
+import { MobileNav, AppTab } from './components/MobileNav';
 import { QuickTransactionModal } from './components/QuickTransactionModal';
 import { NeedModal } from './components/NeedModal';
 import { WhatIfSimulatorModal } from './components/WhatIfSimulatorModal';
+import { OnboardingTour } from './components/OnboardingTour';
 import { DashboardPage } from './pages/DashboardPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { NeedsPage } from './pages/NeedsPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { AuthPage } from './pages/AuthPage';
 import { FinanceProvider } from './context/FinanceContext';
 import { Loader2 } from 'lucide-react';
 
 const MainApp: React.FC = () => {
   const { user, isLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
+  const [tutorialTriggerCount, setTutorialTriggerCount] = useState(0);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF8F5]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-slate-700 animate-spin" />
-          <p className="text-xs font-semibold text-slate-500">Memuat data...</p>
+          <Loader2 className="w-8 h-8 text-[#113829] animate-spin" />
+          <p className="text-xs font-semibold text-[#68736E]">Memuat data...</p>
         </div>
       </div>
     );
@@ -32,23 +35,45 @@ const MainApp: React.FC = () => {
 
   return (
     <FinanceProvider>
-      <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-        {/* Top Navbar with WeekFilter */}
-        <Navbar activeTab={activeTab} setActiveTab={(t) => setActiveTab(t as any)} />
+      <div className="min-h-screen bg-[#F3F1EC] flex justify-center font-sans text-[#14221C]">
+        {/* Mobile App Viewport Shell */}
+        <div className="w-full max-w-[440px] min-h-screen bg-[#FAF8F5] flex flex-col sm:border-x sm:border-[#E6E5DD] sm:shadow-xl relative">
+          <main className="flex-1 px-4 pt-3">
+            {activeTab === 'dashboard' && (
+              <DashboardPage
+                onNavigateTab={setActiveTab}
+                onStartTutorial={() => setTutorialTriggerCount((c) => c + 1)}
+              />
+            )}
+            {activeTab === 'reports' && (
+              <ReportsPage
+                onBack={() => setActiveTab('dashboard')}
+                onNavigateTab={setActiveTab}
+              />
+            )}
+            {activeTab === 'needs' && <NeedsPage />}
+            {activeTab === 'profile' && (
+              <ProfilePage
+                onStartTutorial={() => setTutorialTriggerCount((c) => c + 1)}
+              />
+            )}
+          </main>
 
-        {/* Main Content Area */}
-        <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 pt-5">
-          {activeTab === 'dashboard' && <DashboardPage />}
-          {activeTab === 'reports' && <ReportsPage />}
-        </main>
+          {/* Bottom Mobile Navigation with Center Action FAB */}
+          <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Mobile Navigation */}
-        <MobileNav activeTab={activeTab} setActiveTab={(t) => setActiveTab(t as any)} />
+          {/* Action Modals */}
+          <QuickTransactionModal />
+          <NeedModal />
+          <WhatIfSimulatorModal />
 
-        {/* Action Modals */}
-        <QuickTransactionModal />
-        <NeedModal />
-        <WhatIfSimulatorModal />
+          {/* Interactive Onboarding Tutorial */}
+          <OnboardingTour
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            manualTriggerCount={tutorialTriggerCount}
+          />
+        </div>
       </div>
     </FinanceProvider>
   );

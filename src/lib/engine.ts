@@ -1,6 +1,7 @@
 import {
   Need,
   NeedAllocationMode,
+  PeriodMode,
   Transaction,
   FinancialEngineResult,
   NeedAllocationItem,
@@ -9,7 +10,7 @@ import {
   WhatIfScenario,
   WhatIfSimulationResult
 } from '../types';
-import { convertMonthlyToWeekly } from './utils';
+import { convertMonthlyToWeekly, convertWeeklyToMonthly } from './utils';
 
 /**
  * Determine the active allocation mode of a need
@@ -21,17 +22,28 @@ export function getNeedAllocationMode(need: Need): NeedAllocationMode {
 }
 
 /**
- * Helper to get the weekly equivalent nominal amount of a fixed need
+ * Helper to get the period-adjusted nominal amount of a fixed need (weekly or monthly)
  */
-export function getNeedWeeklyTarget(need: Need): number {
+export function getNeedPeriodTarget(need: Need, periodMode: PeriodMode = 'weekly'): number {
   const mode = getNeedAllocationMode(need);
   if (mode !== 'nominal') {
     return 0;
   }
-  if (need.billing_cycle === 'monthly') {
-    return convertMonthlyToWeekly(need.target_amount);
+  const amount = need.target_amount || 0;
+  if (periodMode === 'monthly') {
+    return need.billing_cycle === 'monthly' ? amount : convertWeeklyToMonthly(amount);
   }
-  return need.target_amount || 0;
+  if (need.billing_cycle === 'monthly') {
+    return convertMonthlyToWeekly(amount);
+  }
+  return amount;
+}
+
+/**
+ * Helper to get the weekly equivalent nominal amount of a fixed need
+ */
+export function getNeedWeeklyTarget(need: Need): number {
+  return getNeedPeriodTarget(need, 'weekly');
 }
 
 /**
@@ -60,7 +72,8 @@ export function isSavingsOrEmergencyNeed(need: Need): boolean {
 export function calculateHybridAllocation(
   incomeInput: number,
   needs: Need[],
-  transactions: Transaction[] = []
+  transactions: Transaction[] = [],
+  periodMode: PeriodMode = 'weekly'
 ): FinancialEngineResult {
   // Only evaluate active needs
   const activeNeeds = needs.filter((n) => n.is_active);
@@ -102,10 +115,16 @@ export function calculateHybridAllocation(
         label = `${pct}% dari pemasukan (Rp ${total_income.toLocaleString('id-ID')})`;
       } else {
         // mode === 'nominal'
-        target = getNeedWeeklyTarget(need);
-        label = need.billing_cycle === 'monthly'
-          ? `Tagihan Rp ${need.target_amount.toLocaleString('id-ID')}/bln (sisihan ~Rp ${target.toLocaleString('id-ID')}/pekan)`
-          : `Nominal tetap Rp ${target.toLocaleString('id-ID')}/pekan`;
+        target = getNeedPeriodTarget(need, periodMode);
+        if (periodMode === 'monthly') {
+          label = need.billing_cycle === 'monthly'
+            ? `Tagihan bulanan Rp ${target.toLocaleString('id-ID')}/bln`
+            : `Mingguan Rp ${(need.target_amount || 0).toLocaleString('id-ID')}/pekan (total ~Rp ${target.toLocaleString('id-ID')}/bln)`;
+        } else {
+          label = need.billing_cycle === 'monthly'
+            ? `Tagihan Rp ${need.target_amount.toLocaleString('id-ID')}/bln (sisihan ~Rp ${target.toLocaleString('id-ID')}/pekan)`
+            : `Nominal tetap Rp ${target.toLocaleString('id-ID')}/pekan`;
+        }
       }
 
       committedTargets.set(need.id, target);
@@ -289,6 +308,7 @@ export function calculateHybridAllocation(
       additional_income_for_ideal_savings = Math.max(0, Math.round(savingsShortfall));
     }
 
+    const unitPerPeriod = periodMode === 'monthly' ? 'bulan' : 'minggu';
     surplus_advice = {
       current_savings_ratio: Math.round(savings_ratio * 10) / 10,
       is_ideal,
@@ -296,7 +316,7 @@ export function calculateHybridAllocation(
       recommended_savings_boost: is_ideal ? Math.round(net_remainder * 0.10) : undefined,
       note: is_ideal
         ? `Rasio tabungan dan darurat ${Math.round(savings_ratio)}%, memenuhi target 20%.`
-        : `Rasio tabungan ${Math.round(savings_ratio)}%, di bawah target 20%. Tambah pemasukan Rp ${additional_income_for_ideal_savings.toLocaleString('id-ID')}/minggu atau pangkas pos keinginan untuk menutup selisih.`
+        : `Rasio tabungan ${Math.round(savings_ratio)}%, di bawah target 20%. Tambah pemasukan Rp ${additional_income_for_ideal_savings.toLocaleString('id-ID')}/${unitPerPeriod} atau pangkas pos keinginan untuk menutup selisih.`
     };
   }
 
@@ -325,9 +345,10 @@ export function calculateHybridAllocation(
 export function simulateWhatIf(
   currentIncome: number,
   currentNeeds: Need[],
-  scenario: WhatIfScenario
+  scenario: WhatIfScenario,
+  periodMode: PeriodMode = 'weekly'
 ): WhatIfSimulationResult {
-  const beforeResult = calculateHybridAllocation(currentIncome, currentNeeds);
+  const beforeResult = calculateHybridAllocation(currentIncome, currentNeeds, [], periodMode);
 
   let simulatedIncome = currentIncome;
   if (scenario.simulated_income_change !== undefined) {
@@ -364,7 +385,7 @@ export function simulateWhatIf(
     }
   }
 
-  const afterResult = calculateHybridAllocation(simulatedIncome, simulatedNeeds);
+  const afterResult = calculateHybridAllocation(simulatedIncome, simulatedNeeds, [], periodMode);
 
   const diffSavings = afterResult.savings_total_allocated - beforeResult.savings_total_allocated;
   const diffRemainder = afterResult.net_remainder - beforeResult.net_remainder;
@@ -386,7 +407,7 @@ export function simulateWhatIf(
       ? `menambah alokasi tabungan sebesar Rp ${diffSavings.toLocaleString('id-ID')}`
       : `tidak mengubah alokasi tabungan`;
 
-    impact_summary = `Status bujet ${afterResult.status}. Skenario ini ${savingsChangeText} per minggu. Sisa dana bersih menjadi Rp ${afterResult.net_remainder.toLocaleString('id-ID')}.`;
+    impact_summary = `Status bujet ${afterResult.status}. Skenario ini ${savingsChangeText} per ${periodMode === 'monthly' ? 'bulan' : 'minggu'}. Sisa dana bersih menjadi Rp ${afterResult.net_remainder.toLocaleString('id-ID')}.`;
     
     if (afterResult.savings_ratio >= 15) {
       recommendation = `Rasio tabungan tetap di angka ${afterResult.savings_ratio}%.`;

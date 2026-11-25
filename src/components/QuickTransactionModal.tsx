@@ -85,10 +85,10 @@ export const QuickTransactionModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-      <div className="relative w-full max-w-md rounded-3xl bg-white shadow-xl border border-slate-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/45 backdrop-blur-xs">
+      <div className="relative w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl bg-[#FAF8F5] shadow-2xl border border-[#E6E5DD] overflow-hidden max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6E5DD] bg-white">
           <div className="flex items-center gap-2">
             <div className={`p-2 rounded-xl ${type === 'expense' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
               {type === 'expense' ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
@@ -265,10 +265,10 @@ export const QuickTransactionModal: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white transition-colors flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-3 rounded-full text-xs font-bold text-white transition-colors flex items-center justify-center gap-1.5 ${
                 type === 'expense'
                   ? 'bg-rose-600 hover:bg-rose-700'
-                  : 'bg-emerald-700 hover:bg-emerald-800'
+                  : 'bg-[#113829] hover:bg-[#0D2D20]'
               }`}
             >
               <Check className="w-4 h-4" />

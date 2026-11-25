@@ -153,6 +153,13 @@ export const api = {
     });
   },
 
+  updatePeriod: async (id: string, period: Partial<WeeklyPeriod>) => {
+    return fetchApi<WeeklyPeriod>(`/periods/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(period),
+    });
+  },
+
   // Reset & Template
   resetData: async () => {
     return fetchApi<{ success: boolean; message: string }>('/user/reset', {

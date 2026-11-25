@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useFinance } from '../context/FinanceContext';
 import { CurrencyInput } from './CurrencyInput';
 import { NeedType, NeedAllocationMode, NeedPriority, BillingCycle } from '../types';
-import { formatIDR, convertMonthlyToWeekly } from '../lib/utils';
+import { formatIDR, convertMonthlyToWeekly, convertWeeklyToMonthly } from '../lib/utils';
 import {
   X,
   Lock,
@@ -29,13 +29,13 @@ const ICON_OPTIONS = [
 ];
 
 export const NeedModal: React.FC = () => {
-  const { isNeedModalOpen, editingNeed, closeNeedModal, saveNeed, engineResult } = useFinance();
+  const { isNeedModalOpen, editingNeed, closeNeedModal, saveNeed, engineResult, periodMode } = useFinance();
 
   const [name, setName] = useState('');
   const [allocationMode, setAllocationMode] = useState<NeedAllocationMode>('nominal');
   const [priority, setPriority] = useState<NeedPriority>('penting');
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('weekly');
-  const [targetAmount, setTargetAmount] = useState<number>(30000);
+  const [targetAmount, setTargetAmount] = useState<number>(0);
   const [percentage, setPercentage] = useState<number>(20);
   const [color, setColor] = useState<string>('#3b82f6');
   const [icon, setIcon] = useState<string>('Fuel');
@@ -60,7 +60,7 @@ export const NeedModal: React.FC = () => {
       setAllocationMode('nominal');
       setPriority('penting');
       setBillingCycle('weekly');
-      setTargetAmount(30000);
+      setTargetAmount(0);
       setPercentage(20);
       setColor('#3b82f6');
       setIcon('Fuel');
@@ -77,9 +77,15 @@ export const NeedModal: React.FC = () => {
   // Live preview calculation
   let previewWeeklyAmount = 0;
   if (allocationMode === 'nominal') {
-    previewWeeklyAmount = billingCycle === 'monthly'
-      ? convertMonthlyToWeekly(targetAmount)
-      : targetAmount;
+    if (periodMode === 'monthly') {
+      previewWeeklyAmount = billingCycle === 'monthly'
+        ? targetAmount
+        : convertWeeklyToMonthly(targetAmount);
+    } else {
+      previewWeeklyAmount = billingCycle === 'monthly'
+        ? convertMonthlyToWeekly(targetAmount)
+        : targetAmount;
+    }
   } else if (allocationMode === 'percent_income') {
     previewWeeklyAmount = Math.round(currentIncome * (percentage / 100));
   } else {
@@ -131,10 +137,10 @@ export const NeedModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-lg rounded-3xl bg-white shadow-xl border border-slate-200 overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/45 backdrop-blur-xs overflow-y-auto">
+      <div className="relative w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl bg-[#FAF8F5] shadow-2xl border border-[#E6E5DD] overflow-hidden max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6E5DD] bg-white sticky top-0 z-10">
           <div>
             <h2 className="text-sm font-bold text-slate-900">
               {editingNeed ? 'Ubah Pos Pengeluaran / Kebutuhan' : 'Tambah Pos Pengeluaran / Kebutuhan'}
@@ -287,7 +293,19 @@ export const NeedModal: React.FC = () => {
 
               {/* Feedback */}
               <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-700">
-                {billingCycle === 'monthly' ? (
+                {periodMode === 'monthly' ? (
+                  billingCycle === 'monthly' ? (
+                    <span>
+                      Jatah tagihan bulanan ini sebesar{' '}
+                      <strong className="text-slate-900">{formatIDR(previewWeeklyAmount)} / bulan</strong>.
+                    </span>
+                  ) : (
+                    <span>
+                      Nominal mingguan {formatIDR(targetAmount)} otomatis dihitung menjadi{' '}
+                      <strong className="text-slate-900">{formatIDR(previewWeeklyAmount)} / bulan</strong> (x4 pekan).
+                    </span>
+                  )
+                ) : billingCycle === 'monthly' ? (
                   <span>
                     Tagihan bulanan {formatIDR(targetAmount)} otomatis dialokasikan menjadi{' '}
                     <strong className="text-slate-900">{formatIDR(previewWeeklyAmount)} / pekan</strong> (dibagi 4 pekan).
@@ -346,12 +364,14 @@ export const NeedModal: React.FC = () => {
               {/* Live Calculation Feedback */}
               <div className="p-3 rounded-xl bg-white border border-blue-200 text-xs text-slate-700 space-y-1">
                 <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                  <span>Pemasukan pekan ini:</span>
+                  <span>Pemasukan {periodMode === 'monthly' ? 'bulan' : 'pekan'} ini:</span>
                   <span className="font-semibold text-slate-800">{formatIDR(currentIncome)}</span>
                 </div>
                 <div className="flex items-center justify-between font-bold text-slate-900 pt-1 border-t border-slate-100">
                   <span>Jatah otomatis pos ini ({percentage}%):</span>
-                  <span className="text-blue-700 text-sm">{formatIDR(previewWeeklyAmount)} / pekan</span>
+                  <span className="text-blue-700 text-sm">
+                    {formatIDR(previewWeeklyAmount)} / {periodMode === 'monthly' ? 'bulan' : 'pekan'}
+                  </span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-0.5">
                   Jika pemasukan berubah (misal naik atau turun), nominal pos ini otomatis ikut menyesuaikan.
@@ -499,7 +519,7 @@ export const NeedModal: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5"
+              className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#113829] hover:bg-[#0D2D20] transition-colors flex items-center justify-center gap-1.5"
             >
               <Check className="w-4 h-4" />
               {isSubmitting ? 'Menyimpan...' : editingNeed ? 'Simpan Perubahan' : 'Tambah Pos'}

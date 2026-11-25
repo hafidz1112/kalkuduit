@@ -5,10 +5,10 @@ import { useFinance } from '../context/FinanceContext';
 import {
   AlertOctagon,
   AlertTriangle,
-  TrendingUp,
+  Sprout,
   Scissors,
   CheckCircle2,
-  ArrowRight,
+  ChevronRight,
   Calculator
 } from 'lucide-react';
 
@@ -17,7 +17,9 @@ interface AdviceCardProps {
 }
 
 export const AdviceCard: React.FC<AdviceCardProps> = ({ engineResult }) => {
-  const { applyTrimmingAdvice, openWhatIf } = useFinance();
+  const { applyTrimmingAdvice, openWhatIf, periodMode } = useFinance();
+  const periodPhrase = periodMode === 'monthly' ? 'bulan ini' : 'pekan ini';
+  const periodUnit = periodMode === 'monthly' ? 'bulan' : 'minggu';
   const [isApplying, setIsApplying] = useState(false);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
 
@@ -38,197 +40,138 @@ export const AdviceCard: React.FC<AdviceCardProps> = ({ engineResult }) => {
   // 1. DEFICIT STATE
   if (engineResult.status === 'defisit') {
     return (
-      <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-xs">
-        <div className="flex items-start gap-3.5">
-          <div className="rounded-xl bg-rose-100 p-2 text-rose-700 shrink-0">
-            <AlertOctagon className="w-5 h-5" />
+      <div className="rounded-3xl border border-rose-200 bg-rose-50/70 p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-rose-100 p-2 text-rose-700 shrink-0">
+            <AlertOctagon className="w-4 h-4" />
           </div>
-          <div className="flex-1 space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h3 className="text-sm font-bold text-slate-900">
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-bold text-[#14221C]">
                 Defisit {formatIDR(engineResult.deficit_amount)}
               </h3>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-rose-100 text-rose-800">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
                 Perlu Penyesuaian
               </span>
             </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Pengeluaran tetap melebihi pemasukan pekan ini. Pangkas pos keinginan atau cari pemasukan tambahan sebesar {formatIDR(engineResult.target_additional_income)} untuk menutup selisih.
+            <p className="text-[11px] text-[#5C6660] leading-relaxed">
+              Kebutuhan tetap melebihi pemasukan {periodPhrase}. Pangkas pos keinginan atau tambah pemasukan {formatIDR(engineResult.target_additional_income)}.
             </p>
+          </div>
+        </div>
 
-            {/* Trimming Suggestions */}
-            {engineResult.trimming_suggestions.length > 0 && (
-              <div className="space-y-2 pt-1">
-                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <Scissors className="w-3.5 h-3.5 text-rose-600" />
-                  Saran Pemangkasan:
-                </span>
-
-                <div className="space-y-1.5">
-                  {engineResult.trimming_suggestions.map((s) => (
-                    <div
-                      key={s.need_id}
-                      className="rounded-xl bg-slate-50 border border-slate-200/80 p-3 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900">{s.need_name}</span>
-                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 uppercase">
-                            {s.priority}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">{s.reason}</p>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <div className="text-slate-400 line-through text-[11px]">
-                          {formatIDR(s.original_amount)}
-                        </div>
-                        <div className="font-bold text-rose-700">
-                          {formatIDR(s.new_amount)}
-                        </div>
-                        <span className="text-[10px] text-emerald-700 font-semibold">
-                          Hemat {formatIDR(s.suggested_cut)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+        {engineResult.trimming_suggestions.length > 0 && (
+          <div className="space-y-1.5">
+            {engineResult.trimming_suggestions.map((s) => (
+              <div
+                key={s.need_id}
+                className="rounded-2xl bg-white border border-rose-100 px-3 py-2 flex items-center justify-between gap-2 text-xs"
+              >
+                <div className="min-w-0">
+                  <span className="font-bold text-[#14221C] block truncate">{s.need_name}</span>
+                  <span className="text-[10px] text-[#6D7772]">Hemat {formatIDR(s.suggested_cut)}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-[#8E9691] line-through block">{formatIDR(s.original_amount)}</span>
+                  <span className="font-bold text-rose-700">{formatIDR(s.new_amount)}</span>
                 </div>
               </div>
-            )}
+            ))}
+          </div>
+        )}
 
-            {/* Actions */}
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-              {engineResult.trimming_suggestions.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleApplyAdvice}
-                  disabled={isApplying || appliedSuccess}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors disabled:opacity-50"
-                >
-                  {appliedSuccess ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Pemangkasan Diterapkan
-                    </>
-                  ) : (
-                    <>
-                      <Scissors className="w-3.5 h-3.5" />
-                      {isApplying ? 'Menerapkan...' : 'Terapkan Pemangkasan'}
-                    </>
-                  )}
-                </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {engineResult.trimming_suggestions.length > 0 && (
+            <button
+              type="button"
+              onClick={handleApplyAdvice}
+              disabled={isApplying || appliedSuccess}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors disabled:opacity-50"
+            >
+              {appliedSuccess ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Diterapkan</span>
+                </>
+              ) : (
+                <>
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>{isApplying ? 'Menerapkan...' : 'Pangkas Otomatis'}</span>
+                </>
               )}
-
-              <button
-                type="button"
-                onClick={openWhatIf}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-              >
-                <Calculator className="w-3.5 h-3.5" />
-                Uji Skenario
-              </button>
-
-              <span className="text-xs text-slate-500 ml-auto">
-                Target tambahan: <strong>{formatIDR(engineResult.target_additional_income)}</strong>
-              </span>
-            </div>
-          </div>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={openWhatIf}
+            className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-[11px] font-semibold text-[#14221C] bg-white border border-[#E6E5DD]"
+          >
+            <Calculator className="w-3 h-3" />
+            <span>Simulasi</span>
+          </button>
         </div>
       </div>
     );
   }
 
-  // 2. TIGHT STATE
+  // 2. TIGHT / ZERO INCOME STATE
   if (engineResult.status === 'ketat') {
+    const isEmptyIncome = engineResult.total_income === 0;
     return (
-      <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-xs">
-        <div className="flex items-start gap-3.5">
-          <div className="rounded-xl bg-amber-100 p-2 text-amber-700 shrink-0">
-            <AlertTriangle className="w-5 h-5" />
+      <button
+        type="button"
+        onClick={openWhatIf}
+        className="w-full text-left rounded-2xl bg-[#EFEFE8] border border-[#E4E3DA] px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#E7E7DE] transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4" />
           </div>
-          <div className="flex-1 space-y-2">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h3 className="text-sm font-bold text-slate-900">
-                Sisa Kas Terbatas: {formatIDR(engineResult.net_remainder)}
-              </h3>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                Ketat
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Sisa dana setelah kebutuhan tetap berada di bawah 10% dari pemasukan. Batasi belanja non-pokok pekan ini agar saldo tidak defisit.
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-[#14221C] truncate">
+              {isEmptyIncome ? 'Belum ada pemasukan' : `Sisa kas ketat: ${formatIDR(engineResult.net_remainder)}`}
             </p>
-
-            <div className="pt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={openWhatIf}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition-colors"
-              >
-                <Calculator className="w-3.5 h-3.5" />
-                Uji Perubahan Bujet
-              </button>
-            </div>
+            <p className="text-[11px] text-[#68736E] leading-snug line-clamp-2">
+              {isEmptyIncome
+                ? `Ketuk "Ubah" di kartu hijau atas atau catat pemasukan ${periodPhrase}.`
+                : `Sisa dana di bawah 10% pemasukan. Uji perubahan bujet di Simulasi.`}
+            </p>
           </div>
         </div>
-      </div>
+        <ChevronRight className="w-4 h-4 text-[#6D7772] shrink-0" />
+      </button>
     );
   }
 
-  // 3. HEALTHY (AMAN) STATE
+  // 3. HEALTHY (AMAN) STATE — matches Screen 2 & 3 Sage Insight Banner
   const advice = engineResult.surplus_advice;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
-      <div className="flex items-start gap-3.5">
-        <div className="rounded-xl bg-emerald-100 p-2 text-emerald-700 shrink-0">
-          <TrendingUp className="w-5 h-5" />
+    <button
+      type="button"
+      onClick={openWhatIf}
+      className="w-full text-left rounded-2xl bg-[#EAEFE4] border border-[#DAE3D2] px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#E1E8D9] transition-colors"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-xl bg-[#D7E6CE] text-[#113829] flex items-center justify-center shrink-0">
+          <Sprout className="w-4 h-4" />
         </div>
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <h3 className="text-sm font-bold text-slate-900">
-              Sisa Bersih Fleksibel: {formatIDR(engineResult.net_remainder)}
-            </h3>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-              Rasio Tabungan: {engineResult.savings_ratio}%
-            </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold text-[#113829] truncate">
+              {advice?.is_ideal
+                ? `Bujet Sehat · Tabungan ${engineResult.savings_ratio}%`
+                : `Sisa Bersih ${formatIDR(engineResult.net_remainder)}`}
+            </p>
           </div>
-
-          <p className="text-xs text-slate-600 leading-relaxed">
-            {advice?.note || 'Pemasukan menutup semua kebutuhan tetap. Dana sisa dialokasikan ke tabungan dan pos fleksibel.'}
+          <p className="text-[11px] text-[#4E5C54] leading-snug line-clamp-2">
+            {advice && !advice.is_ideal && advice.additional_income_for_ideal_savings
+              ? `Rasio tabungan ${engineResult.savings_ratio}%. Tambah +${formatIDR(advice.additional_income_for_ideal_savings)}/${periodUnit} untuk capai 20%.`
+              : advice?.note || 'Pemasukan menutup semua kebutuhan terencana.'}
           </p>
-
-          {advice && !advice.is_ideal && advice.additional_income_for_ideal_savings && (
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex items-center justify-between flex-wrap gap-2">
-              <span>
-                Target pemasukan tambahan untuk mencapai rasio 20%: <strong>+{formatIDR(advice.additional_income_for_ideal_savings)}/minggu</strong>
-              </span>
-              <button
-                type="button"
-                onClick={openWhatIf}
-                className="font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1"
-              >
-                Simulasikan
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-
-          <div className="pt-1 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openWhatIf}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-            >
-              <Calculator className="w-3.5 h-3.5" />
-              Uji Skenario Bujet
-            </button>
-          </div>
         </div>
       </div>
-    </div>
+      <ChevronRight className="w-4 h-4 text-[#113829] shrink-0" />
+    </button>
   );
 };

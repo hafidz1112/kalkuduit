@@ -21,6 +21,7 @@ export const WhatIfSimulatorModal: React.FC = () => {
     closeWhatIf,
     needs,
     incomeTarget,
+    periodMode,
     saveNeed,
     updateIncomeTarget,
   } = useFinance();
@@ -52,11 +53,11 @@ export const WhatIfSimulatorModal: React.FC = () => {
           billing_cycle: 'weekly',
           is_active: true,
         },
-      });
+      }, periodMode);
     } else if (activeTab === 'adjust_income') {
       return simulateWhatIf(incomeTarget, needs, {
         simulated_income_change: incomeDelta,
-      });
+      }, periodMode);
     } else {
       const targetNeed = needs.find((n) => n.id === selectedNeedId);
       return simulateWhatIf(incomeTarget, needs, {
@@ -66,9 +67,9 @@ export const WhatIfSimulatorModal: React.FC = () => {
               target_amount: modifiedAmount,
             }
           : undefined,
-      });
+      }, periodMode);
     }
-  }, [activeTab, incomeTarget, needs, newNeedName, newNeedAmount, newNeedPriority, incomeDelta, selectedNeedId, modifiedAmount]);
+  }, [activeTab, incomeTarget, needs, newNeedName, newNeedAmount, newNeedPriority, incomeDelta, selectedNeedId, modifiedAmount, periodMode]);
 
   const [applied, setApplied] = useState(false);
 
@@ -108,10 +109,10 @@ export const WhatIfSimulatorModal: React.FC = () => {
   if (!isWhatIfOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-2xl rounded-3xl bg-white shadow-xl border border-slate-200 overflow-hidden my-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/45 backdrop-blur-xs overflow-y-auto">
+      <div className="relative w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl bg-[#FAF8F5] shadow-2xl border border-[#E6E5DD] overflow-hidden max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E6E5DD] bg-white sticky top-0 z-10">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
               <Calculator className="w-5 h-5" />
@@ -392,7 +393,7 @@ export const WhatIfSimulatorModal: React.FC = () => {
               type="button"
               onClick={handleApplyToRealBudget}
               disabled={applied || simulationResult.after.status === 'defisit'}
-              className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+              className="flex-1 py-3 rounded-full text-xs font-bold text-white bg-[#113829] hover:bg-[#0D2D20] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               {applied ? 'Tersimpan' : 'Terapkan ke Bujet'}

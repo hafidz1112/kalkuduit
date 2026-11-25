@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables (jangan commit kunci rahasia ke git)
+.env
+.env.local
+.env.*.local
+
+# Local fallback database
+data/db.json
+
+# Logs
+*.log

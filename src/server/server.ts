@@ -1,9 +1,16 @@
 import express from 'express';
 import path from 'path';
+import { loadEnvFiles } from './env';
 import { apiRouter } from './router';
+import { getDbRepository } from './repository';
+
+loadEnvFiles();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize repository on startup so active DB mode is logged immediately
+getDbRepository();
 
 app.use(express.json());
 

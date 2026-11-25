@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Need,
+  PeriodMode,
   Transaction,
   WeeklyPeriod,
   FinancialEngineResult,
@@ -8,26 +9,39 @@ import {
 } from '../types';
 import { api } from '../lib/api';
 import { calculateHybridAllocation } from '../lib/engine';
-import { getCurrentWeekPeriod, getWeekOptionByOffset, WeekOption } from '../lib/utils';
+import {
+  getCurrentWeekPeriod,
+  getCurrentMonthPeriod,
+  getWeekOptionByOffset,
+  getMonthOptionByOffset
+} from '../lib/utils';
 import { useAuth } from './AuthContext';
 
 interface FinanceContextType {
   needs: Need[];
   transactions: Transaction[];
+  periodTransactions: Transaction[];
   periods: WeeklyPeriod[];
   selectedPeriod: WeeklyPeriod | null;
+  periodMode: PeriodMode;
   incomeTarget: number;
   engineResult: FinancialEngineResult;
   isLoading: boolean;
 
-  // Weekly filter navigation
+  // Period filter navigation (weekly / monthly)
   currentWeekOffset: number;
   isCurrentWeek: boolean;
+  currentPeriodOffset: number;
+  isCurrentPeriod: boolean;
+  switchPeriodMode: (mode: PeriodMode) => Promise<void>;
   selectWeekByOffset: (offset: number) => Promise<void>;
   selectWeekByRange: (startDate: string, endDate: string, label: string) => Promise<void>;
   goToPreviousWeek: () => Promise<void>;
   goToNextWeek: () => Promise<void>;
   goToCurrentWeek: () => Promise<void>;
+  goToPreviousPeriod: () => Promise<void>;
+  goToNextPeriod: () => Promise<void>;
+  goToCurrentPeriod: () => Promise<void>;
 
   // Actions
   refreshData: () => Promise<void>;
@@ -70,7 +84,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [periods, setPeriods] = useState<WeeklyPeriod[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<WeeklyPeriod | null>(null);
-  const [incomeTarget, setIncomeTarget] = useState<number>(400000);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('weekly');
+  const [incomeTarget, setIncomeTarget] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Modal states
@@ -90,6 +105,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setTransactions([]);
       setPeriods([]);
       setSelectedPeriod(null);
+      setIncomeTarget(0);
       setIsLoading(false);
       return;
     }
@@ -106,116 +122,110 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setTransactions(fetchedTx);
       setPeriods(fetchedPeriods);
 
-      // Setup current period
-      const currentWeekInfo = getCurrentWeekPeriod();
+      // Setup current period based on active periodMode
+      const currentPeriodInfo = periodMode === 'monthly'
+        ? getCurrentMonthPeriod()
+        : getCurrentWeekPeriod();
       let active = fetchedPeriods.find(
-        (p) => p.start_date === currentWeekInfo.startDate && p.end_date === currentWeekInfo.endDate
+        (p) => p.start_date === currentPeriodInfo.startDate && p.end_date === currentPeriodInfo.endDate
       );
 
-      if (!active && fetchedPeriods.length > 0) {
-        active = fetchedPeriods[0];
-      } else if (!active) {
+      if (!active) {
         try {
           const created = await api.createPeriod({
-            start_date: currentWeekInfo.startDate,
-            end_date: currentWeekInfo.endDate,
-            label: currentWeekInfo.label,
-            total_income_target: 400000,
+            start_date: currentPeriodInfo.startDate,
+            end_date: currentPeriodInfo.endDate,
+            label: currentPeriodInfo.label,
+            total_income_target: 0,
           });
           active = created;
-          setPeriods([created]);
+          setPeriods((prev) => {
+            const exists = prev.some((p) => p.id === created.id);
+            return exists ? prev : [...prev, created];
+          });
         } catch {
           active = {
             id: 'temp-period',
             user_id: user.id,
-            start_date: currentWeekInfo.startDate,
-            end_date: currentWeekInfo.endDate,
-            label: currentWeekInfo.label,
-            total_income_target: 400000,
+            start_date: currentPeriodInfo.startDate,
+            end_date: currentPeriodInfo.endDate,
+            label: currentPeriodInfo.label,
+            total_income_target: 0,
           };
         }
       }
 
       if (active) {
         setSelectedPeriod(active);
-        setIncomeTarget(active.total_income_target || 400000);
+        setIncomeTarget(active.total_income_target ?? 0);
       }
     } catch (err) {
       console.error('Failed to load finance data:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, periodMode]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
 
-  // Compute offset from current week
-  const currentWeekOffset = useMemo(() => {
+  // Compute offset from current week or current month
+  const currentPeriodOffset = useMemo(() => {
     if (!selectedPeriod) return 0;
+    if (periodMode === 'monthly') {
+      const currentMonthInfo = getCurrentMonthPeriod();
+      const d1 = new Date(selectedPeriod.start_date + 'T00:00:00');
+      const d2 = new Date(currentMonthInfo.startDate + 'T00:00:00');
+      return (d1.getFullYear() - d2.getFullYear()) * 12 + (d1.getMonth() - d2.getMonth());
+    }
     const currentWeekInfo = getCurrentWeekPeriod();
     const d1 = new Date(selectedPeriod.start_date + 'T00:00:00');
     const d2 = new Date(currentWeekInfo.startDate + 'T00:00:00');
     const diffTime = d1.getTime() - d2.getTime();
     return Math.round(diffTime / (7 * 24 * 60 * 60 * 1000));
-  }, [selectedPeriod]);
+  }, [selectedPeriod, periodMode]);
 
-  const isCurrentWeek = currentWeekOffset === 0;
+  const isCurrentPeriod = currentPeriodOffset === 0;
+  const currentWeekOffset = currentPeriodOffset;
+  const isCurrentWeek = isCurrentPeriod;
 
-  // Filter transactions belonging to the selected weekly period
+  // Filter transactions belonging to the selected period (weekly or monthly)
   const periodTransactions = useMemo(() => {
     if (!selectedPeriod) return transactions;
     return transactions.filter((t) => {
-      if (t.period_id && t.period_id === selectedPeriod.id) return true;
+      if (periodMode === 'weekly' && t.period_id && t.period_id === selectedPeriod.id) return true;
       return t.date >= selectedPeriod.start_date && t.date <= selectedPeriod.end_date;
     });
-  }, [transactions, selectedPeriod]);
+  }, [transactions, selectedPeriod, periodMode]);
 
   // Run the Financial Suggestion Engine instantly in real-time
   const engineResult = useMemo(() => {
-    return calculateHybridAllocation(incomeTarget, needs, periodTransactions);
-  }, [incomeTarget, needs, periodTransactions]);
+    return calculateHybridAllocation(incomeTarget, needs, periodTransactions, periodMode);
+  }, [incomeTarget, needs, periodTransactions, periodMode]);
 
   // Income Target update
   const updateIncomeTarget = async (target: number) => {
-    setIncomeTarget(target);
+    const cleanTarget = Math.max(0, Number(target) || 0);
+    setIncomeTarget(cleanTarget);
     if (selectedPeriod) {
-      const updatedPeriod = { ...selectedPeriod, total_income_target: target };
+      const updatedPeriod = { ...selectedPeriod, total_income_target: cleanTarget };
       setSelectedPeriod(updatedPeriod);
       setPeriods((prev) => prev.map((p) => (p.id === selectedPeriod.id ? updatedPeriod : p)));
+
+      if (selectedPeriod.id !== 'temp-period') {
+        try {
+          const saved = await api.updatePeriod(selectedPeriod.id, { total_income_target: cleanTarget });
+          setSelectedPeriod(saved);
+          setPeriods((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+        } catch (err) {
+          console.error('Failed to persist income target:', err);
+        }
+      }
     }
   };
 
-  // Weekly Navigation Handlers
-  const selectWeekByOffset = useCallback(async (offset: number) => {
-    const weekOption: WeekOption = getWeekOptionByOffset(offset);
-    let target = periods.find(
-      (p) => p.start_date === weekOption.startDate && p.end_date === weekOption.endDate
-    );
-
-    if (!target) {
-      target = {
-        id: `period-${weekOption.startDate}`,
-        user_id: user?.id || 'demo',
-        start_date: weekOption.startDate,
-        end_date: weekOption.endDate,
-        label: weekOption.label,
-        total_income_target: incomeTarget || 400000,
-      };
-      try {
-        const created = await api.createPeriod(target);
-        target = created;
-        setPeriods((prev) => [...prev, created]);
-      } catch {
-        setPeriods((prev) => [...prev, target!]);
-      }
-    }
-
-    setSelectedPeriod(target);
-    setIncomeTarget(target.total_income_target || 400000);
-  }, [periods, user, incomeTarget]);
-
+  // Shared helper to select or create a period by date range
   const selectWeekByRange = useCallback(async (startDate: string, endDate: string, label: string) => {
     let target = periods.find(
       (p) => p.start_date === startDate && p.end_date === endDate
@@ -223,37 +233,74 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!target) {
       target = {
-        id: `period-${startDate}`,
+        id: `period-${startDate}-${endDate}`,
         user_id: user?.id || 'demo',
         start_date: startDate,
         end_date: endDate,
         label: label,
-        total_income_target: incomeTarget || 400000,
+        total_income_target: 0,
       };
       try {
         const created = await api.createPeriod(target);
         target = created;
-        setPeriods((prev) => [...prev, created]);
+        setPeriods((prev) => (prev.some((p) => p.id === created.id) ? prev : [...prev, created]));
       } catch {
         setPeriods((prev) => [...prev, target!]);
       }
     }
 
     setSelectedPeriod(target);
-    setIncomeTarget(target.total_income_target || 400000);
-  }, [periods, user, incomeTarget]);
+    setIncomeTarget(target.total_income_target ?? 0);
+  }, [periods, user]);
 
-  const goToPreviousWeek = useCallback(async () => {
-    await selectWeekByOffset(currentWeekOffset - 1);
-  }, [selectWeekByOffset, currentWeekOffset]);
+  const selectWeekByOffset = useCallback(async (offset: number) => {
+    const weekOption = getWeekOptionByOffset(offset);
+    await selectWeekByRange(weekOption.startDate, weekOption.endDate, weekOption.label);
+  }, [selectWeekByRange]);
 
-  const goToNextWeek = useCallback(async () => {
-    await selectWeekByOffset(currentWeekOffset + 1);
-  }, [selectWeekByOffset, currentWeekOffset]);
+  const selectMonthByOffset = useCallback(async (offset: number) => {
+    const monthOption = getMonthOptionByOffset(offset);
+    await selectWeekByRange(monthOption.startDate, monthOption.endDate, monthOption.label);
+  }, [selectWeekByRange]);
 
-  const goToCurrentWeek = useCallback(async () => {
-    await selectWeekByOffset(0);
-  }, [selectWeekByOffset]);
+  const switchPeriodMode = useCallback(async (mode: PeriodMode) => {
+    setPeriodMode(mode);
+    if (mode === 'monthly') {
+      const m = getMonthOptionByOffset(0);
+      await selectWeekByRange(m.startDate, m.endDate, m.label);
+    } else {
+      const w = getWeekOptionByOffset(0);
+      await selectWeekByRange(w.startDate, w.endDate, w.label);
+    }
+  }, [selectWeekByRange]);
+
+  const goToPreviousPeriod = useCallback(async () => {
+    if (periodMode === 'monthly') {
+      await selectMonthByOffset(currentPeriodOffset - 1);
+    } else {
+      await selectWeekByOffset(currentPeriodOffset - 1);
+    }
+  }, [periodMode, currentPeriodOffset, selectMonthByOffset, selectWeekByOffset]);
+
+  const goToNextPeriod = useCallback(async () => {
+    if (periodMode === 'monthly') {
+      await selectMonthByOffset(currentPeriodOffset + 1);
+    } else {
+      await selectWeekByOffset(currentPeriodOffset + 1);
+    }
+  }, [periodMode, currentPeriodOffset, selectMonthByOffset, selectWeekByOffset]);
+
+  const goToCurrentPeriod = useCallback(async () => {
+    if (periodMode === 'monthly') {
+      await selectMonthByOffset(0);
+    } else {
+      await selectWeekByOffset(0);
+    }
+  }, [periodMode, selectMonthByOffset, selectWeekByOffset]);
+
+  const goToPreviousWeek = goToPreviousPeriod;
+  const goToNextWeek = goToNextPeriod;
+  const goToCurrentWeek = goToCurrentPeriod;
 
   // Need CRUD
   const saveNeed = async (needData: Partial<Need>): Promise<Need> => {
@@ -368,19 +415,27 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       value={{
         needs,
         transactions,
+        periodTransactions,
         periods,
         selectedPeriod,
+        periodMode,
         incomeTarget,
         engineResult,
         isLoading,
 
         currentWeekOffset,
         isCurrentWeek,
+        currentPeriodOffset,
+        isCurrentPeriod,
+        switchPeriodMode,
         selectWeekByOffset,
         selectWeekByRange,
         goToPreviousWeek,
         goToNextWeek,
         goToCurrentWeek,
+        goToPreviousPeriod,
+        goToNextPeriod,
+        goToCurrentPeriod,
 
         refreshData,
         setSelectedPeriod,

@@ -1,21 +1,43 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { readDb, writeDb, getDefaultSeedData, resetUserData, loadTemplateData } from './db';
+import { loadEnvFiles } from './env';
+import { getDbRepository } from './repository';
 import { hashPassword, verifyPassword, generateToken } from './auth';
 import { calculateHybridAllocation, simulateWhatIf } from '../lib/engine';
-import { Need, Transaction, WeeklyPeriod } from '../types';
+import { Need, PeriodMode, Transaction, WeeklyPeriod } from '../types';
+
+loadEnvFiles();
 
 export const apiRouter = Router();
 
+const asyncHandler =
+  (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+
+// Health check route to verify active database (.env + Supabase vs Local JSON)
+apiRouter.get(
+  '/health',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const repo = getDbRepository();
+    const health = await repo.checkHealth();
+    res.status(health.ok ? 200 : 500).json({
+      ...health,
+      timestamp: new Date().toISOString(),
+    });
+  })
+);
+
 // Middleware to extract user from Authorization header (Bearer token or demo fallback)
-function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+const authMiddleware = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
-  const db = readDb();
+  const repo = getDbRepository();
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    const session = db.sessions.find((s) => s.token === token && s.expires_at > Date.now());
+    const session = await repo.findValidSession(token);
     if (session) {
-      const user = db.users.find((u) => u.id === session.user_id);
+      const user = await repo.findUserById(session.user_id);
       if (user) {
         (req as any).user = user;
         return next();
@@ -24,90 +46,81 @@ function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   }
 
   // Fallback to first demo user for smooth local experience if no token provided
-  if (db.users.length > 0) {
-    (req as any).user = db.users[0];
+  const fallbackUser = await repo.getFallbackDemoUser();
+  if (fallbackUser) {
+    (req as any).user = fallbackUser;
     return next();
   }
 
   res.status(401).json({ error: 'Unauthorized. Please login.' });
-}
+});
 
 // --- AUTH ROUTES ---
 
-apiRouter.post('/auth/register', (req: Request, res: Response) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password) {
-    res.status(400).json({ error: 'Nama, email, dan password wajib diisi.' });
-    return;
-  }
+apiRouter.post(
+  '/auth/register',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      res.status(400).json({ error: 'Nama, email, dan password wajib diisi.' });
+      return;
+    }
 
-  const db = readDb();
-  const existing = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (existing) {
-    res.status(400).json({ error: 'Email sudah terdaftar.' });
-    return;
-  }
+    const repo = getDbRepository();
+    const existing = await repo.findUserByEmail(email);
+    if (existing) {
+      res.status(400).json({ error: 'Email sudah terdaftar.' });
+      return;
+    }
 
-  const userId = `user-${Date.now()}`;
-  const newUser = {
-    id: userId,
-    name,
-    email: email.toLowerCase(),
-    created_at: new Date().toISOString(),
-    password_hash: hashPassword(password),
-  };
+    const userId = `user-${Date.now()}`;
+    const newUser = await repo.createUser({
+      id: userId,
+      name,
+      email: email.toLowerCase(),
+      created_at: new Date().toISOString(),
+      password_hash: hashPassword(password),
+    });
 
-  db.users.push(newUser);
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: userId,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
+    });
 
-  // Seed standard default needs for this new user
-  const defaultSeeds = getDefaultSeedData();
-  const userNeeds = defaultSeeds.needs.map((n) => ({
-    ...n,
-    id: `need-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-    user_id: userId,
-  }));
-  db.needs.push(...userNeeds);
+    const { password_hash, ...safeUser } = newUser;
+    res.json({ user: safeUser, token });
+  })
+);
 
-  // Create session token
-  const token = generateToken();
-  db.sessions.push({
-    token,
-    user_id: userId,
-    expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
-  });
+apiRouter.post(
+  '/auth/login',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email dan password wajib diisi.' });
+      return;
+    }
 
-  writeDb(db);
+    const repo = getDbRepository();
+    const user = await repo.findUserByEmail(email);
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      res.status(401).json({ error: 'Email atau password salah.' });
+      return;
+    }
 
-  const { password_hash, ...safeUser } = newUser;
-  res.json({ user: safeUser, token });
-});
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: user.id,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
 
-apiRouter.post('/auth/login', (req: Request, res: Response) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ error: 'Email dan password wajib diisi.' });
-    return;
-  }
-
-  const db = readDb();
-  const user = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (!user || !verifyPassword(password, user.password_hash)) {
-    res.status(401).json({ error: 'Email atau password salah.' });
-    return;
-  }
-
-  const token = generateToken();
-  db.sessions.push({
-    token,
-    user_id: user.id,
-    expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000,
-  });
-
-  writeDb(db);
-
-  const { password_hash, ...safeUser } = user;
-  res.json({ user: safeUser, token });
-});
+    const { password_hash, ...safeUser } = user;
+    res.json({ user: safeUser, token });
+  })
+);
 
 apiRouter.get('/auth/me', authMiddleware, (req: Request, res: Response) => {
   const user = (req as any).user;
@@ -117,261 +130,299 @@ apiRouter.get('/auth/me', authMiddleware, (req: Request, res: Response) => {
 
 // --- NEEDS (KEBUTUHAN CUSTOM) ROUTES ---
 
-apiRouter.get('/needs', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const db = readDb();
-  const userNeeds = db.needs.filter((n) => n.user_id === user.id);
-  res.json(userNeeds);
-});
+apiRouter.get(
+  '/needs',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const repo = getDbRepository();
+    const userNeeds = await repo.getNeedsByUser(user.id);
+    res.json(userNeeds);
+  })
+);
 
-apiRouter.post('/needs', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { name, type, allocation_mode, priority, billing_cycle, target_amount, percentage, icon, color, note } = req.body;
+apiRouter.post(
+  '/needs',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { name, type, allocation_mode, priority, billing_cycle, target_amount, percentage, icon, color, note } = req.body;
 
-  if (!name || !priority) {
-    res.status(400).json({ error: 'Nama dan prioritas kebutuhan wajib diisi.' });
-    return;
-  }
+    if (!name || !priority) {
+      res.status(400).json({ error: 'Nama dan prioritas kebutuhan wajib diisi.' });
+      return;
+    }
 
-  const determinedMode = allocation_mode || (type === 'flexible' ? 'percent_remainder' : 'nominal');
-  const determinedType = determinedMode === 'percent_remainder' ? 'flexible' : 'fixed';
+    const determinedMode = allocation_mode || (type === 'flexible' ? 'percent_remainder' : 'nominal');
+    const determinedType = determinedMode === 'percent_remainder' ? 'flexible' : 'fixed';
 
-  const db = readDb();
-  const newNeed: Need = {
-    id: `need-${Date.now()}`,
-    user_id: user.id,
-    name,
-    type: determinedType,
-    allocation_mode: determinedMode,
-    priority: priority || 'penting',
-    billing_cycle: billing_cycle || 'weekly',
-    target_amount: Number(target_amount) || 0,
-    percentage: Number(percentage) || 0,
-    is_active: true,
-    icon: icon || 'Tag',
-    color: color || '#10b981',
-    note: note || '',
-    created_at: new Date().toISOString(),
-  };
+    const repo = getDbRepository();
+    const newNeed: Need = {
+      id: `need-${Date.now()}`,
+      user_id: user.id,
+      name,
+      type: determinedType,
+      allocation_mode: determinedMode,
+      priority: priority || 'penting',
+      billing_cycle: billing_cycle || 'weekly',
+      target_amount: Number(target_amount) || 0,
+      percentage: Number(percentage) || 0,
+      is_active: true,
+      icon: icon || 'Tag',
+      color: color || '#10b981',
+      note: note || '',
+      created_at: new Date().toISOString(),
+    };
 
-  db.needs.push(newNeed);
-  writeDb(db);
+    const created = await repo.createNeed(newNeed);
+    res.status(201).json(created);
+  })
+);
 
-  res.status(201).json(newNeed);
-});
+apiRouter.put(
+  '/needs/:id',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const needId = String(req.params.id);
+    const repo = getDbRepository();
 
-apiRouter.put('/needs/:id', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const needId = req.params.id;
-  const db = readDb();
+    const updated = await repo.updateNeed(needId, user.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: 'Kebutuhan tidak ditemukan.' });
+      return;
+    }
 
-  const index = db.needs.findIndex((n) => n.id === needId && n.user_id === user.id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Kebutuhan tidak ditemukan.' });
-    return;
-  }
+    res.json(updated);
+  })
+);
 
-  const updated: Need = {
-    ...db.needs[index],
-    ...req.body,
-    id: needId,
-    user_id: user.id,
-  };
+apiRouter.delete(
+  '/needs/:id',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const needId = String(req.params.id);
+    const repo = getDbRepository();
 
-  db.needs[index] = updated;
-  writeDb(db);
+    const deleted = await repo.deleteNeed(needId, user.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Kebutuhan tidak ditemukan.' });
+      return;
+    }
 
-  res.json(updated);
-});
-
-apiRouter.delete('/needs/:id', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const needId = req.params.id;
-  const db = readDb();
-
-  const initialLen = db.needs.length;
-  db.needs = db.needs.filter((n) => !(n.id === needId && n.user_id === user.id));
-
-  if (db.needs.length === initialLen) {
-    res.status(404).json({ error: 'Kebutuhan tidak ditemukan.' });
-    return;
-  }
-
-  writeDb(db);
-  res.json({ success: true, message: 'Kebutuhan berhasil dihapus.' });
-});
+    res.json({ success: true, message: 'Kebutuhan berhasil dihapus.' });
+  })
+);
 
 // --- TRANSACTIONS (TRANSAKSI) ROUTES ---
 
-apiRouter.get('/transactions', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { period_id, need_id, type, start_date, end_date } = req.query;
-  const db = readDb();
+apiRouter.get(
+  '/transactions',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { period_id, need_id, type, start_date, end_date } = req.query;
+    const repo = getDbRepository();
 
-  let list = db.transactions.filter((t) => t.user_id === user.id);
+    const list = await repo.getTransactionsByUser(user.id, {
+      period_id: period_id as string | undefined,
+      need_id: need_id as string | undefined,
+      type: type as string | undefined,
+      start_date: start_date as string | undefined,
+      end_date: end_date as string | undefined,
+    });
 
-  if (period_id) {
-    list = list.filter((t) => t.period_id === period_id);
-  }
-  if (need_id) {
-    list = list.filter((t) => t.need_id === need_id);
-  }
-  if (type) {
-    list = list.filter((t) => t.type === type);
-  }
-  if (start_date && end_date) {
-    list = list.filter((t) => t.date >= (start_date as string) && t.date <= (end_date as string));
-  }
+    res.json(list);
+  })
+);
 
-  // Sort descending by date
-  list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+apiRouter.post(
+  '/transactions',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { period_id, need_id, type, amount, date, note } = req.body;
 
-  res.json(list);
-});
+    if (!type || !amount || !date) {
+      res.status(400).json({ error: 'Jenis, nominal, dan tanggal transaksi wajib diisi.' });
+      return;
+    }
 
-apiRouter.post('/transactions', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { period_id, need_id, type, amount, date, note } = req.body;
+    const repo = getDbRepository();
+    const newTx: Transaction = {
+      id: `tx-${Date.now()}`,
+      user_id: user.id,
+      period_id: period_id || undefined,
+      need_id: need_id || null,
+      type: type === 'income' ? 'income' : 'expense',
+      amount: Number(amount),
+      date,
+      note: note || '',
+      created_at: new Date().toISOString(),
+    };
 
-  if (!type || !amount || !date) {
-    res.status(400).json({ error: 'Jenis, nominal, dan tanggal transaksi wajib diisi.' });
-    return;
-  }
+    const created = await repo.createTransaction(newTx);
+    res.status(201).json(created);
+  })
+);
 
-  const db = readDb();
-  const newTx: Transaction = {
-    id: `tx-${Date.now()}`,
-    user_id: user.id,
-    period_id: period_id || undefined,
-    need_id: need_id || null,
-    type: type === 'income' ? 'income' : 'expense',
-    amount: Number(amount),
-    date,
-    note: note || '',
-    created_at: new Date().toISOString(),
-  };
+apiRouter.put(
+  '/transactions/:id',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const txId = String(req.params.id);
+    const repo = getDbRepository();
 
-  db.transactions.push(newTx);
-  writeDb(db);
+    const updated = await repo.updateTransaction(txId, user.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: 'Transaksi tidak ditemukan.' });
+      return;
+    }
 
-  res.status(201).json(newTx);
-});
+    res.json(updated);
+  })
+);
 
-apiRouter.put('/transactions/:id', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const txId = req.params.id;
-  const db = readDb();
+apiRouter.delete(
+  '/transactions/:id',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const txId = String(req.params.id);
+    const repo = getDbRepository();
 
-  const index = db.transactions.findIndex((t) => t.id === txId && t.user_id === user.id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Transaksi tidak ditemukan.' });
-    return;
-  }
+    const deleted = await repo.deleteTransaction(txId, user.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Transaksi tidak ditemukan.' });
+      return;
+    }
 
-  const updated: Transaction = {
-    ...db.transactions[index],
-    ...req.body,
-    id: txId,
-    user_id: user.id,
-    amount: Number(req.body.amount ?? db.transactions[index].amount),
-  };
+    res.json({ success: true, message: 'Transaksi berhasil dihapus.' });
+  })
+);
 
-  db.transactions[index] = updated;
-  writeDb(db);
+// --- WEEKLY / MONTHLY PERIODS ROUTES ---
 
-  res.json(updated);
-});
+apiRouter.get(
+  '/periods',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const repo = getDbRepository();
+    const periods = await repo.getPeriodsByUser(user.id);
+    res.json(periods);
+  })
+);
 
-apiRouter.delete('/transactions/:id', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const txId = req.params.id;
-  const db = readDb();
+apiRouter.post(
+  '/periods',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { start_date, end_date, label, total_income_target, notes } = req.body;
+    const repo = getDbRepository();
 
-  const initialLen = db.transactions.length;
-  db.transactions = db.transactions.filter((t) => !(t.id === txId && t.user_id === user.id));
+    const period: WeeklyPeriod = {
+      id: `period-${Date.now()}`,
+      user_id: user.id,
+      start_date,
+      end_date,
+      label,
+      total_income_target: Number(total_income_target) || 0,
+      notes: notes || '',
+    };
 
-  if (db.transactions.length === initialLen) {
-    res.status(404).json({ error: 'Transaksi tidak ditemukan.' });
-    return;
-  }
+    const result = await repo.createOrGetPeriod(period);
+    res.status(result.id === period.id ? 201 : 200).json(result);
+  })
+);
 
-  writeDb(db);
-  res.json({ success: true, message: 'Transaksi berhasil dihapus.' });
-});
+apiRouter.put(
+  '/periods/:id',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const periodId = String(req.params.id);
+    const repo = getDbRepository();
 
-// --- WEEKLY PERIODS ROUTES ---
+    const updated = await repo.updatePeriod(periodId, user.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: 'Periode tidak ditemukan.' });
+      return;
+    }
 
-apiRouter.get('/periods', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const db = readDb();
-  const periods = db.weekly_periods.filter((p) => p.user_id === user.id);
-  res.json(periods);
-});
-
-apiRouter.post('/periods', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { start_date, end_date, label, total_income_target, notes } = req.body;
-
-  const db = readDb();
-  const newPeriod: WeeklyPeriod = {
-    id: `period-${Date.now()}`,
-    user_id: user.id,
-    start_date,
-    end_date,
-    label,
-    total_income_target: Number(total_income_target) || 0,
-    notes: notes || '',
-  };
-
-  db.weekly_periods.push(newPeriod);
-  writeDb(db);
-
-  res.status(201).json(newPeriod);
-});
+    res.json(updated);
+  })
+);
 
 // --- ENGINE CALCULATION & WHAT-IF SIMULATION ---
 
-apiRouter.get('/engine/calculate', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { start_date, end_date, income_target } = req.query;
-  const db = readDb();
+apiRouter.get(
+  '/engine/calculate',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { start_date, end_date, income_target, period_mode } = req.query;
+    const repo = getDbRepository();
 
-  const userNeeds = db.needs.filter((n) => n.user_id === user.id);
-  let userTransactions = db.transactions.filter((t) => t.user_id === user.id);
+    const userNeeds = await repo.getNeedsByUser(user.id);
+    const userTransactions = await repo.getTransactionsByUser(user.id, {
+      start_date: start_date as string | undefined,
+      end_date: end_date as string | undefined,
+    });
 
-  if (start_date && end_date) {
-    userTransactions = userTransactions.filter(
-      (t) => t.date >= (start_date as string) && t.date <= (end_date as string)
-    );
-  }
+    const income = Number(income_target) || 0;
+    const mode: PeriodMode = period_mode === 'monthly' ? 'monthly' : 'weekly';
+    const result = calculateHybridAllocation(income, userNeeds, userTransactions, mode);
 
-  const income = Number(income_target) || 0;
-  const result = calculateHybridAllocation(income, userNeeds, userTransactions);
+    res.json(result);
+  })
+);
 
-  res.json(result);
-});
+apiRouter.post(
+  '/engine/simulate',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const { current_income, scenario, period_mode } = req.body;
+    const repo = getDbRepository();
 
-apiRouter.post('/engine/simulate', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const { current_income, scenario } = req.body;
-  const db = readDb();
+    const userNeeds = await repo.getNeedsByUser(user.id);
+    const mode: PeriodMode = period_mode === 'monthly' ? 'monthly' : 'weekly';
+    const result = simulateWhatIf(Number(current_income) || 0, userNeeds, scenario, mode);
 
-  const userNeeds = db.needs.filter((n) => n.user_id === user.id);
-  const result = simulateWhatIf(Number(current_income) || 0, userNeeds, scenario);
-
-  res.json(result);
-});
+    res.json(result);
+  })
+);
 
 // --- RESET & TEMPLATE ROUTES ---
 
-apiRouter.post('/user/reset', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  resetUserData(user.id);
-  res.json({ success: true, message: 'Data berhasil direset ke nol.' });
-});
+apiRouter.post(
+  '/user/reset',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const repo = getDbRepository();
+    await repo.resetUserData(user.id);
+    res.json({ success: true, message: 'Data berhasil direset ke nol.' });
+  })
+);
 
-apiRouter.post('/user/load-template', authMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
-  const templateNeeds = loadTemplateData(user.id);
-  res.json({ success: true, message: 'Template awal berhasil dimuat.', needs: templateNeeds });
+apiRouter.post(
+  '/user/load-template',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const repo = getDbRepository();
+    const templateNeeds = await repo.loadTemplateData(user.id);
+    res.json({ success: true, message: 'Template awal berhasil dimuat.', needs: templateNeeds });
+  })
+);
+
+// Express error handler for async database errors
+apiRouter.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('API Error:', err);
+  res.status(500).json({ error: err?.message || 'Terjadi kesalahan pada server database.' });
 });

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
 import { AdviceCard } from '../components/AdviceCard';
 import { StatusBadge } from '../components/StatusBadge';
+import { WeekFilter } from '../components/WeekFilter';
 import { formatIDR, formatDateIndo } from '../lib/utils';
 import { exportWeeklyRecapToCSV } from '../lib/export';
 import { getNeedAllocationMode } from '../lib/engine';
+import { AppTab } from '../components/MobileNav';
 import {
-  Wallet,
   ArrowUpRight,
   ArrowDownRight,
   Download,
@@ -15,23 +17,35 @@ import {
   Trash2,
   Calculator,
   Layers,
-  Lock,
-  Percent,
-  Coins,
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  RotateCcw
+  Eye,
+  EyeOff,
+  HelpCircle,
+  X,
+  Wallet
 } from 'lucide-react';
 
-export const DashboardPage: React.FC = () => {
+interface DashboardPageProps {
+  onNavigateTab?: (tab: AppTab) => void;
+  onStartTutorial?: () => void;
+}
+
+export const DashboardPage: React.FC<DashboardPageProps> = ({
+  onNavigateTab,
+  onStartTutorial,
+}) => {
+  const { user } = useAuth();
   const {
     selectedPeriod,
+    periodMode,
+    switchPeriodMode,
     incomeTarget,
     updateIncomeTarget,
     engineResult,
     needs,
-    transactions,
+    periodTransactions,
     deleteTransaction,
     openCreateTx,
     openEditTx,
@@ -39,475 +53,334 @@ export const DashboardPage: React.FC = () => {
     openEditNeed,
     deleteNeed,
     openWhatIf,
-    goToPreviousWeek,
-    goToNextWeek,
-    resetData,
+    goToPreviousPeriod,
+    goToNextPeriod,
     loadTemplate,
   } = useFinance();
 
-  // Income target editing
   const [isEditingIncome, setIsEditingIncome] = useState(false);
   const [tempIncome, setTempIncome] = useState(incomeTarget);
+  const [isFlowModalOpen, setIsFlowModalOpen] = useState(false);
+  const [hideAmounts, setHideAmounts] = useState(false);
+  const [showAllTx, setShowAllTx] = useState(false);
+
+  const periodNoun = periodMode === 'monthly' ? 'Bulan Ini' : 'Pekan Ini';
+  const firstName = user?.name ? user.name.split(' ')[0] : 'Kamu';
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 11) return 'Selamat pagi';
+    if (hour < 15) return 'Selamat siang';
+    if (hour < 19) return 'Selamat sore';
+    return 'Selamat malam';
+  };
+
+  const displayMoney = (val: number) => (hideAmounts ? 'Rp ••••••' : formatIDR(val));
 
   const handleSaveIncome = async () => {
     await updateIncomeTarget(tempIncome);
     setIsEditingIncome(false);
   };
 
-  // Transactions in current week
-  const periodTransactions = transactions.filter((t) => {
-    if (!selectedPeriod) return true;
-    if (t.period_id === selectedPeriod.id) return true;
-    return t.date >= selectedPeriod.start_date && t.date <= selectedPeriod.end_date;
-  });
-
-  // Allocations grouped by calculation mode
-  const plannedAllocations = engineResult.allocations.filter(
-    (a) => getNeedAllocationMode(a.need) !== 'percent_remainder'
-  );
-  const surplusAllocations = engineResult.allocations.filter(
-    (a) => getNeedAllocationMode(a.need) === 'percent_remainder'
-  );
+  const displayedTransactions = showAllTx ? periodTransactions : periodTransactions.slice(0, 5);
 
   return (
-    <div className="space-y-6 pb-24 md:pb-12 max-w-5xl mx-auto">
-      {/* 1. TOP HEADER: Week Navigation, Income Target & Main Action */}
-      <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Periode Keuangan
-              </span>
-              <StatusBadge status={engineResult.status} size="sm" />
-            </div>
+    <div className="space-y-4 pb-28">
+      {/* 1. MOBILE TOP HEADER (Screen 2 Greeting + Period & Help Actions) */}
+      <div className="flex items-center justify-between gap-2 pt-2">
+        <div className="min-w-0">
+          <h1 className="text-base font-extrabold text-[#14221C] truncate">
+            {getGreeting()}, {firstName}
+          </h1>
+          <p className="text-[11px] text-[#68736E] truncate">
+            Atur bujet {periodMode === 'monthly' ? 'bulanan' : 'mingguan'} dengan rapi
+          </p>
+        </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={goToPreviousWeek}
-                title="Pekan Sebelumnya"
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div data-tour="week-filter">
+            <WeekFilter compact />
+          </div>
+          {onStartTutorial && (
+            <button
+              type="button"
+              onClick={onStartTutorial}
+              title="Panduan Penggunaan"
+              className="w-8 h-8 rounded-full bg-[#EFEFE8] hover:bg-[#E5E5DC] text-[#14221C] flex items-center justify-center transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
 
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                {selectedPeriod?.label || 'Pekan Ini'}
-              </h1>
+      {/* 2. HERO FOREST-GREEN BALANCE CARD (Screen 2 Balance Card) */}
+      <div
+        data-tour="income-card"
+        className="p-5 rounded-[26px] bg-[#113829] text-white shadow-lg shadow-[#113829]/15 space-y-4 relative overflow-hidden"
+      >
+        {/* Subtle decorative circle */}
+        <div className="absolute -right-8 -top-10 w-32 h-32 rounded-full bg-white/5 pointer-events-none" />
 
-              <button
-                type="button"
-                onClick={goToNextWeek}
-                title="Pekan Berikutnya"
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 mt-1">
-              Bujet otomatis membagi uang ke setiap pos belanja dan tabungan.
-            </p>
+        {/* Top row: Label + Eye toggle + Mingguan/Bulanan pill */}
+        <div className="flex items-center justify-between gap-2 relative z-10">
+          <div className="flex items-center gap-2 min-w-0">
+            <StatusBadge status={engineResult.status} size="sm" onDark />
+            <span className="text-[11px] font-medium text-[#C8DFCE] truncate">
+              Pemasukan {periodNoun}
+            </span>
+            <button
+              type="button"
+              onClick={() => setHideAmounts(!hideAmounts)}
+              title={hideAmounts ? 'Tampilkan nominal' : 'Sembunyikan nominal'}
+              className="text-[#B8DEC4] hover:text-white transition-colors"
+            >
+              {hideAmounts ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center flex-wrap gap-2">
+          <div className="inline-flex items-center rounded-full bg-[#1C4D3A] p-0.5 text-[10px] font-bold shrink-0">
             <button
               type="button"
-              onClick={() => openCreateTx()}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-xs"
+              onClick={() => switchPeriodMode('weekly')}
+              className={`px-2 py-0.5 rounded-full transition-colors ${
+                periodMode === 'weekly' ? 'bg-white text-[#113829]' : 'text-[#C8DFCE]'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Catat Transaksi</span>
+              Minggu
             </button>
-
             <button
               type="button"
-              onClick={openCreateNeed}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 transition-colors shadow-xs"
+              onClick={() => switchPeriodMode('monthly')}
+              className={`px-2 py-0.5 rounded-full transition-colors ${
+                periodMode === 'monthly' ? 'bg-white text-[#113829]' : 'text-[#C8DFCE]'
+              }`}
             >
-              <Plus className="w-4 h-4 text-slate-600" />
-              <span>Tambah Pos</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={openWhatIf}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-            >
-              <Calculator className="w-4 h-4 text-slate-500" />
-              Simulasi
-            </button>
-
-            <button
-              type="button"
-              onClick={() => selectedPeriod && exportWeeklyRecapToCSV(selectedPeriod.label, engineResult)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-            >
-              <Download className="w-4 h-4 text-slate-500" />
-              CSV
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                if (confirm('Reset semua data kebutuhan dan transaksi kembali ke nol?')) {
-                  await resetData();
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-xl"
-              title="Reset data ke nol"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Data</span>
+              Bulan
             </button>
           </div>
         </div>
 
-        {/* 3 Formula Numbers (Hybrid Allocation: P - F = S) */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-5 pt-4 border-t border-slate-100 text-center sm:text-left">
-          {/* P: Pemasukan */}
-          <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200/60">
-            <span className="text-[10px] sm:text-xs font-semibold text-slate-500 block">
-              1. Pemasukan Pekan Ini (P)
-            </span>
-            <div className="text-base sm:text-xl font-extrabold text-slate-900 mt-0.5">
-              {formatIDR(engineResult.total_income)}
+        {/* Main Income Figure + Target Ubah */}
+        <div className="flex items-end justify-between gap-3 relative z-10">
+          <div>
+            <div className="text-[28px] font-extrabold tracking-tight leading-none text-white">
+              {displayMoney(engineResult.total_income)}
             </div>
-            <div className="mt-1 text-[10px] text-slate-400">
+
+            <div className="mt-2 text-[11px] text-[#B8DEC4]">
               {isEditingIncome ? (
-                <div className="flex items-center gap-1 mt-1 justify-center sm:justify-start">
+                <div className="flex items-center gap-1.5 mt-1">
                   <input
                     type="number"
-                    value={tempIncome}
-                    onChange={(e) => setTempIncome(Number(e.target.value))}
-                    className="w-20 px-1 py-0.5 text-xs border rounded bg-white"
+                    min="0"
+                    placeholder="0"
+                    value={tempIncome === 0 ? '' : tempIncome}
+                    onChange={(e) => setTempIncome(e.target.value === '' ? 0 : Number(e.target.value))}
+                    className="w-28 px-2.5 py-1 text-xs font-bold rounded-full bg-white text-[#14221C] focus:outline-none"
                   />
                   <button
+                    type="button"
                     onClick={handleSaveIncome}
-                    className="text-[10px] font-bold text-slate-900 bg-slate-200 px-1.5 py-0.5 rounded"
+                    className="text-[11px] font-bold text-[#113829] bg-[#B8DEC4] hover:bg-white px-2.5 py-1 rounded-full transition-colors"
                   >
                     Simpan
                   </button>
                 </div>
               ) : (
-                <span>
-                  Target: {formatIDR(incomeTarget)}{' '}
+                <div className="flex items-center gap-1.5">
+                  <span>Target: {displayMoney(incomeTarget)}</span>
                   <button
+                    type="button"
+                    data-tour="income-edit-btn"
                     onClick={() => {
                       setTempIncome(incomeTarget);
                       setIsEditingIncome(true);
                     }}
-                    className="text-slate-900 underline font-semibold ml-0.5"
+                    className="px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-white font-bold text-[10px] transition-colors"
                   >
                     Ubah
                   </button>
-                </span>
+                </div>
               )}
             </div>
           </div>
 
-          {/* F: Kebutuhan Terencana */}
-          <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200/60">
-            <span className="text-[10px] sm:text-xs font-semibold text-slate-500 block">
-              2. Kebutuhan Terencana (F)
+          {/* Right Period Stepper inside card */}
+          <div className="flex items-center gap-1 bg-[#1C4D3A] rounded-full px-1.5 py-1 shrink-0">
+            <button
+              type="button"
+              onClick={goToPreviousPeriod}
+              title={periodMode === 'monthly' ? 'Bulan Sebelumnya' : 'Pekan Sebelumnya'}
+              className="p-0.5 rounded-full text-[#C8DFCE] hover:text-white"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-semibold text-white max-w-[78px] truncate text-center">
+              {selectedPeriod?.label || periodNoun}
             </span>
-            <div className="text-base sm:text-xl font-extrabold text-slate-900 mt-0.5">
-              {formatIDR(engineResult.fixed_total)}
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Nominal tetap & % pemasukan
-            </p>
+            <button
+              type="button"
+              onClick={goToNextPeriod}
+              title={periodMode === 'monthly' ? 'Bulan Berikutnya' : 'Pekan Berikutnya'}
+              className="p-0.5 rounded-full text-[#C8DFCE] hover:text-white"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
+        </div>
 
-          {/* S: Sisa Bersih Fleksibel */}
-          <div className={`p-3 sm:p-4 rounded-2xl border ${
-            engineResult.net_remainder < 0
-              ? 'bg-rose-50 border-rose-200'
-              : 'bg-emerald-50 border-emerald-200'
-          }`}>
-            <span className="text-[10px] sm:text-xs font-semibold text-slate-600 block">
-              3. Sisa Bersih (S = P - F)
+        {/* Bottom 2 Metrics: Terencana (F) & Sisa Bersih (S) */}
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 relative z-10">
+          <div className="rounded-2xl bg-white/10 px-3 py-2">
+            <span className="text-[10px] text-[#C8DFCE] block">Terencana (F)</span>
+            <span className="text-xs font-bold text-white">{displayMoney(engineResult.fixed_total)}</span>
+          </div>
+          <div className={`rounded-2xl px-3 py-2 ${engineResult.net_remainder < 0 ? 'bg-rose-500/25' : 'bg-[#22533E]'}`}>
+            <span className="text-[10px] text-[#C8DFCE] block">Sisa Bersih (S)</span>
+            <span className={`text-xs font-extrabold ${engineResult.net_remainder < 0 ? 'text-rose-200' : 'text-[#D7F0E0]'}`}>
+              {displayMoney(engineResult.net_remainder)}
             </span>
-            <div className={`text-base sm:text-xl font-extrabold mt-0.5 ${
-              engineResult.net_remainder < 0 ? 'text-rose-700' : 'text-emerald-800'
-            }`}>
-              {formatIDR(engineResult.net_remainder)}
-            </div>
-            <p className="text-[10px] text-slate-500 mt-1">
-              {engineResult.net_remainder < 0 ? 'Kekurangan dana' : 'Dibagi ke tabungan & darurat'}
-            </p>
           </div>
         </div>
       </div>
 
-      {/* 2. ADVICE CARD (Hanya muncul jika ada defisit atau saran tabungan) */}
+      {/* 3. FOUR QUICK ACTION ICON TILES (Screen 2 Action Row) */}
+      <div className="grid grid-cols-4 gap-2">
+        <button
+          type="button"
+          data-tour="add-tx-btn"
+          onClick={() => openCreateTx()}
+          className="flex flex-col items-center gap-1.5 group"
+        >
+          <div className="w-full h-13 py-3.5 rounded-2xl bg-[#EFEFE8] group-hover:bg-[#E4E4DA] text-[#14221C] flex items-center justify-center transition-colors">
+            <Plus className="w-5 h-5" />
+          </div>
+          <span className="text-[11px] font-semibold text-[#14221C] whitespace-nowrap">Catat</span>
+        </button>
+
+        <button
+          type="button"
+          data-tour="add-need-btn"
+          onClick={openCreateNeed}
+          className="flex flex-col items-center gap-1.5 group"
+        >
+          <div className="w-full h-13 py-3.5 rounded-2xl bg-[#EFEFE8] group-hover:bg-[#E4E4DA] text-[#14221C] flex items-center justify-center transition-colors">
+            <Layers className="w-5 h-5" />
+          </div>
+          <span className="text-[11px] font-semibold text-[#14221C] whitespace-nowrap">Tambah Pos</span>
+        </button>
+
+        <button
+          type="button"
+          data-tour="simulasi-btn"
+          onClick={openWhatIf}
+          className="flex flex-col items-center gap-1.5 group"
+        >
+          <div className="w-full h-13 py-3.5 rounded-2xl bg-[#EFEFE8] group-hover:bg-[#E4E4DA] text-[#14221C] flex items-center justify-center transition-colors">
+            <Calculator className="w-5 h-5" />
+          </div>
+          <span className="text-[11px] font-semibold text-[#14221C] whitespace-nowrap">Simulasi</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsFlowModalOpen(true)}
+          className="flex flex-col items-center gap-1.5 group"
+        >
+          <div className="w-full h-13 py-3.5 rounded-2xl bg-[#EFEFE8] group-hover:bg-[#E4E4DA] text-[#113829] flex items-center justify-center transition-colors">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <span className="text-[11px] font-semibold text-[#14221C] whitespace-nowrap">Alur</span>
+        </button>
+      </div>
+
+      {/* 4. COMPACT INSIGHT / ADVICE BANNER */}
       <AdviceCard engineResult={engineResult} />
 
-      {/* PANDUAN MULAI DARI NOL (Muncul jika belum ada pos kebutuhan) */}
-      {needs.length === 0 && (
-        <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-bold">
-              <Sparkles className="w-5 h-5 text-emerald-400" />
+      {/* 5. POS ANGGARAN RINGKAS */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-extrabold text-[#14221C]">
+            Pos Anggaran ({engineResult.allocations.length})
+          </h2>
+          <button
+            type="button"
+            onClick={() => (onNavigateTab ? onNavigateTab('needs') : openCreateNeed())}
+            className="text-xs font-semibold text-[#68736E] hover:text-[#113829] flex items-center gap-0.5"
+          >
+            <span>Kelola</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {engineResult.allocations.length === 0 ? (
+          <div className="p-5 rounded-3xl bg-white border border-[#E6E5DD] text-center space-y-2.5">
+            <div className="w-10 h-10 rounded-full bg-[#EFEFE8] text-[#113829] flex items-center justify-center mx-auto">
+              <Wallet className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                Alur Penyusunan Keuangan Mingguan (Mulai dari Nol)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Data saat ini telah bersih. Ikuti 3 langkah berikut untuk memahami alur perhitungan sistem:
+              <p className="text-xs font-bold text-[#14221C]">Belum ada pos anggaran</p>
+              <p className="text-[11px] text-[#68736E] mt-0.5">
+                Buat pos belanja atau tabungan agar jatah uang terbagi otomatis.
               </p>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
-              <span className="font-extrabold text-slate-900 block">1. Masukkan Pemasukan (P)</span>
-              <p className="text-slate-500 text-[11px] leading-relaxed">
-                Klik tombol <strong>Ubah</strong> pada kartu Pemasukan di atas. Masukkan target mingguan Anda (misal <strong>Rp 160.000</strong>).
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
-              <span className="font-extrabold text-slate-900 block">2. Buat Pos Custom</span>
-              <p className="text-slate-500 text-[11px] leading-relaxed">
-                Pilih rumus bebas: nominal tetap (Bensin Rp 30.000) atau persentase (Makan 40% = Rp 64.000).
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
-              <span className="font-extrabold text-slate-900 block">3. Catat & Lihat Sisa Jatah</span>
-              <p className="text-slate-500 text-[11px] leading-relaxed">
-                Setiap kali Anda belanja, catat via tombol popup. Sisa jatah pos dan sisa saldo kas langsung diperbarui secara instan.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center flex-wrap gap-2 pt-1">
             <button
               type="button"
               onClick={openCreateNeed}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Buat Pos Kebutuhan Pertama</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                if (confirm('Muat template rekomendasi pos kebutuhan awal (Bensin Rp 30rb, Makan 35%, WiFi bulanan, Jajan 10%, Tabungan 60%, Darurat 40%)?')) {
-                  await loadTemplate();
-                }
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-            >
-              <Layers className="w-4 h-4 text-slate-500" />
-              <span>Muat Template Rekomendasi</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 3. JATAH UANG & REALISASI BELANJA PER POS */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-slate-700" />
-              Jatah Uang & Realisasi Belanja
-            </h2>
-            <p className="text-xs text-slate-500">
-              Bebas tentukan rumus pengeluaran per pos: nominal tetap (Rp) atau persentase dari pemasukan (% dari P).
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openCreateNeed}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold text-white bg-[#113829] hover:bg-[#0D2D20] transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              Tambah Pos Baru
+              <span>Buat Pos Pertama</span>
             </button>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-2">
+            {engineResult.allocations.slice(0, 4).map((item) => {
+              const isOver = item.is_overbudget;
+              const usage = Math.min(100, Math.round(item.usage_percentage));
+              const mode = getNeedAllocationMode(item.need);
 
-        {/* KELOMPOK 1: Pos Terencana & Belanja Pokok (Nominal Tetap & % Pemasukan) */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-slate-600" />
-              Pos Terencana & Belanja Pokok (Terkunci {formatIDR(engineResult.fixed_total)})
-            </span>
-          </div>
-
-          {plannedAllocations.length === 0 ? (
-            <div className="p-6 rounded-2xl border border-dashed border-slate-300 text-center bg-white text-xs text-slate-500">
-              Belum ada pos belanja terencana. Klik "Tambah Pos Baru" untuk menambahkan pos kebutuhan Anda.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {plannedAllocations.map((item) => {
-                const isOver = item.is_overbudget;
-                const usage = Math.min(100, Math.round(item.usage_percentage));
-                const mode = getNeedAllocationMode(item.need);
-
-                return (
-                  <div
-                    key={item.need.id}
-                    className={`p-4 rounded-2xl border transition-all ${
-                      isOver
-                        ? 'border-rose-200 bg-rose-50/20'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: item.need.color || '#10b981' }}
-                          />
-                          <h3 className="text-xs font-bold text-slate-900">
-                            {item.need.name}
-                          </h3>
-
-                          {/* Mode Badge */}
-                          {mode === 'percent_income' ? (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                              {item.need.percentage}% Pemasukan
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                              {item.need.billing_cycle === 'monthly' ? 'Bulanan' : 'Tetap Rp'}
-                            </span>
-                          )}
-
-                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 uppercase">
-                            {item.need.priority}
-                          </span>
-                        </div>
-
-                        {/* Formula Label */}
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          {item.formula_label}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openEditNeed(item.need)}
-                          title="Ubah Pos"
-                          className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm(`Hapus pos "${item.need.name}"?`)) {
-                              deleteNeed(item.need.id);
-                            }
-                          }}
-                          title="Hapus Pos"
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Jatah vs Terpakai vs Sisa */}
-                    <div className="mt-3 flex items-baseline justify-between text-xs">
-                      <div>
-                        <span className="text-slate-500 text-[11px] block">Jatah Pekan Ini:</span>
-                        <strong className="text-slate-900 font-extrabold text-sm">
-                          {formatIDR(item.allocated_amount)}
-                        </strong>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-slate-500 text-[11px] block">Terpakai: {formatIDR(item.spent_amount)}</span>
-                        {isOver ? (
-                          <span className="text-rose-700 font-bold text-xs">
-                            Overbudget +{formatIDR(item.overbudget_amount)}
-                          </span>
-                        ) : (
-                          <span className="text-slate-900 font-bold text-xs">
-                            Sisa: {formatIDR(item.remaining_amount)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${isOver ? 'bg-rose-600' : 'bg-slate-900'}`}
-                        style={{ width: `${usage}%` }}
+              return (
+                <div
+                  key={item.need.id}
+                  className={`p-3.5 rounded-2xl bg-white border transition-colors ${
+                    isOver ? 'border-rose-200 bg-rose-50/30' : 'border-[#E6E5DD]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: item.need.color || '#113829' }}
                       />
+                      <span className="text-xs font-bold text-[#14221C] truncate">
+                        {item.need.name}
+                      </span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#EFEFE8] text-[#5C6660] shrink-0">
+                        {mode === 'percent_income'
+                          ? `${item.need.percentage}% P`
+                          : mode === 'percent_remainder'
+                            ? `${item.need.percentage}% Sisa`
+                            : item.need.billing_cycle === 'monthly'
+                              ? 'Bulanan'
+                              : 'Tetap'}
+                      </span>
                     </div>
 
-                    {/* 1-Click to open popup pre-filled with this need */}
-                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400">
-                        {usage}% terpakai
-                      </span>
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => openCreateTx(item.need.id)}
-                        className="font-bold text-slate-900 hover:underline flex items-center gap-1"
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#EFEFE8] hover:bg-[#113829] hover:text-white text-[#14221C] transition-colors shrink-0 whitespace-nowrap"
                       >
-                        <Plus className="w-3 h-3" />
-                        Catat ke Pos Ini
+                        + Catat
                       </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* KELOMPOK 2: Alokasi Pos Tabungan & Sisa Kas (% dari Sisa Kas Bersih) */}
-        <div className="space-y-2.5 pt-3">
-          <span className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-            <Coins className="w-3.5 h-3.5 text-emerald-600" />
-            Alokasi Tabungan & Pos Sisa Kas (Dari Sisa Bersih {formatIDR(Math.max(0, engineResult.net_remainder))})
-          </span>
-
-          {surplusAllocations.length === 0 ? (
-            <div className="p-5 rounded-2xl border border-dashed border-slate-300 text-center bg-white text-xs text-slate-500">
-              Belum ada pos tabungan atau pembagian sisa kas. Tambahkan pos dengan rumus "% Sisa Kas".
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {surplusAllocations.map((item) => (
-                <div
-                  key={item.need.id}
-                  className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-slate-300 transition-all space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: item.need.color || '#3b82f6' }}
-                      />
-                      <h3 className="text-xs font-bold text-slate-900 truncate">
-                        {item.need.name}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={() => openEditNeed(item.need)}
-                        className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                        className="p-1 text-[#8E9691] hover:text-[#14221C]"
+                        title="Ubah Pos"
                       >
                         <Edit2 className="w-3 h-3" />
                       </button>
@@ -518,121 +391,242 @@ export const DashboardPage: React.FC = () => {
                             deleteNeed(item.need.id);
                           }
                         }}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                        className="p-1 text-[#8E9691] hover:text-rose-600"
+                        title="Hapus Pos"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
 
-                  <p className="text-[10px] text-slate-500 leading-tight">
-                    {item.formula_label}
-                  </p>
-
-                  <div className="pt-1">
-                    <span className="text-slate-500 text-[10px] block">Jatah ({item.need.percentage}%):</span>
-                    <div className="text-base font-extrabold text-slate-900 mt-0.5">
-                      {formatIDR(item.allocated_amount)}
-                    </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px]">
+                    <span className="text-[#68736E]">
+                      Jatah: <strong className="text-[#14221C]">{displayMoney(item.allocated_amount)}</strong>
+                    </span>
+                    <span className={isOver ? 'font-bold text-rose-700' : 'font-bold text-[#113829]'}>
+                      {isOver
+                        ? `Lebih ${displayMoney(item.overbudget_amount)}`
+                        : `Sisa ${displayMoney(item.remaining_amount)}`}
+                    </span>
                   </div>
 
-                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Terpakai: {formatIDR(item.spent_amount)}</span>
-                    <button
-                      type="button"
-                      onClick={() => openCreateTx(item.need.id)}
-                      className="font-bold text-slate-900 hover:underline"
-                    >
-                      + Catat
-                    </button>
+                  <div className="w-full bg-[#EFEFE8] rounded-full h-1.5 mt-1.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${isOver ? 'bg-rose-600' : 'bg-[#113829]'}`}
+                      style={{ width: `${usage}%` }}
+                    />
                   </div>
                 </div>
-              ))}
+              );
+            })}
+
+            {engineResult.allocations.length > 4 && onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('needs')}
+                className="w-full py-2.5 rounded-2xl bg-[#EFEFE8] hover:bg-[#E5E5DC] text-xs font-bold text-[#113829] transition-colors"
+              >
+                Lihat Semua {engineResult.allocations.length} Pos →
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 6. TRANSAKSI TERBARU (Screen 2 Recent Transactions List) */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-extrabold text-[#14221C]">
+            Transaksi Terbaru
+          </h2>
+          {periodTransactions.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setShowAllTx(!showAllTx)}
+              className="text-xs font-semibold text-[#68736E] hover:text-[#113829]"
+            >
+              {showAllTx ? 'Ringkas' : `Lihat semua (${periodTransactions.length}) →`}
+            </button>
+          )}
+        </div>
+
+        <div className="rounded-3xl bg-white border border-[#E6E5DD] overflow-hidden">
+          {displayedTransactions.length === 0 ? (
+            <div className="text-center py-8 px-4 text-[#8E9691] text-xs">
+              Belum ada transaksi {periodMode === 'monthly' ? 'bulan ini' : 'pekan ini'}. Tekan tombol tengah untuk mencatat.
+            </div>
+          ) : (
+            <div className="divide-y divide-[#EFEFE8]">
+              {displayedTransactions.map((tx) => {
+                const need = needs.find((n) => n.id === tx.need_id);
+                const isIncome = tx.type === 'income';
+
+                return (
+                  <div
+                    key={tx.id}
+                    className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#FAF8F5] transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                          isIncome
+                            ? 'bg-[#E5F2E8] text-[#113829]'
+                            : 'bg-[#EFEFE8] text-[#14221C]'
+                        }`}
+                      >
+                        {isIncome ? (
+                          <ArrowUpRight className="w-4 h-4" />
+                        ) : (
+                          <ArrowDownRight className="w-4 h-4" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#14221C] truncate">
+                          {tx.note || (isIncome ? 'Pemasukan' : need?.name || 'Pengeluaran')}
+                        </p>
+                        <p className="text-[11px] text-[#68736E] truncate">
+                          {isIncome ? 'Pemasukan' : need?.name || 'Pengeluaran'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <span
+                          className={`text-xs font-extrabold block ${
+                            isIncome ? 'text-[#113829]' : 'text-[#14221C]'
+                          }`}
+                        >
+                          {hideAmounts
+                            ? '•••••'
+                            : isIncome
+                              ? `+${formatIDR(tx.amount)}`
+                              : `-${formatIDR(tx.amount)}`}
+                        </span>
+                        <span className="text-[10px] text-[#8E9691]">
+                          {formatDateIndo(tx.date)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => openEditTx(tx)}
+                          className="p-1 text-[#9AA39E] hover:text-[#14221C]"
+                          title="Ubah"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Hapus transaksi ini?')) {
+                              deleteTransaction(tx.id);
+                            }
+                          }}
+                          className="p-1 text-[#9AA39E] hover:text-rose-600"
+                          title="Hapus"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
-      {/* 4. RIWAYAT TRANSAKSI PEKAN INI */}
-      <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">
-              Transaksi Pekan Ini ({periodTransactions.length})
-            </h2>
-            <p className="text-xs text-slate-500">Catatan pengeluaran dan pemasukan pekan ini.</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => openCreateTx()}
-            className="text-xs font-bold text-slate-900 hover:underline flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Catat Transaksi
-          </button>
-        </div>
-
-        {periodTransactions.length === 0 ? (
-          <div className="text-center py-8 text-slate-400 text-xs">
-            Belum ada transaksi di pekan ini. Klik "Catat Transaksi" untuk memasukkan catatan baru.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {periodTransactions.map((tx) => {
-              const need = needs.find((n) => n.id === tx.need_id);
-              const isIncome = tx.type === 'income';
-
-              return (
-                <div key={tx.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={`p-1.5 rounded-lg shrink-0 ${isIncome ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                      {isIncome ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                    </div>
-
-                    <div className="min-w-0 truncate">
-                      <span className="font-bold text-slate-900 mr-2">
-                        {tx.note || (isIncome ? 'Pemasukan' : need?.name || 'Pengeluaran')}
-                      </span>
-                      {need && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-medium">
-                          {need.name}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-400 ml-2">
-                        {formatDateIndo(tx.date)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`font-bold ${isIncome ? 'text-emerald-700' : 'text-slate-900'}`}>
-                      {isIncome ? `+${formatIDR(tx.amount)}` : `-${formatIDR(tx.amount)}`}
-                    </span>
-
-                    <button
-                      onClick={() => openEditTx(tx)}
-                      className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm('Hapus transaksi ini?')) {
-                          deleteTransaction(tx.id);
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
+      {/* POPUP ALUR & TEMPLATE */}
+      {isFlowModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/45 backdrop-blur-xs">
+          <div className="relative w-full max-w-[440px] rounded-t-3xl sm:rounded-3xl bg-[#FAF8F5] shadow-2xl border border-[#E6E5DD] overflow-hidden animate-in fade-in duration-150">
+            <div className="flex items-center justify-between px-5 py-4 bg-[#113829] text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4 text-[#B8DEC4]" />
                 </div>
-              );
-            })}
+                <div>
+                  <h3 className="text-sm font-bold">Alur Keuangan (Mulai dari Nol)</h3>
+                  <p className="text-[11px] text-[#C8DFCE]">3 langkah mudah pakai KalkuDuit</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFlowModalOpen(false)}
+                className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div className="p-3.5 rounded-2xl bg-white border border-[#E6E5DD] space-y-0.5">
+                <span className="text-xs font-extrabold text-[#113829] block">1. Masukkan Pemasukan (P)</span>
+                <p className="text-[11px] text-[#68736E] leading-relaxed">
+                  Ketuk <strong>Ubah</strong> di kartu hijau atas untuk menentukan target pemasukan mingguan/bulanan.
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-white border border-[#E6E5DD] space-y-0.5">
+                <span className="text-xs font-extrabold text-[#113829] block">2. Buat Pos Custom</span>
+                <p className="text-[11px] text-[#68736E] leading-relaxed">
+                  Atur pos dengan nominal tetap, % pemasukan, atau % sisa kas (tabungan).
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-white border border-[#E6E5DD] space-y-0.5">
+                <span className="text-xs font-extrabold text-[#113829] block">3. Catat & Pantau Analitik</span>
+                <p className="text-[11px] text-[#68736E] leading-relaxed">
+                  Gunakan tombol tengah untuk mencatat transaksi dan lihat grafik pengeluaran di tab Analitik.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFlowModalOpen(false);
+                    openCreateNeed();
+                  }}
+                  className="w-full py-2.5 rounded-full text-xs font-bold text-white bg-[#113829] hover:bg-[#0D2D20] transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Buat Pos Kebutuhan</span>
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (confirm('Muat template rekomendasi pos kebutuhan awal?')) {
+                        await loadTemplate();
+                        setIsFlowModalOpen(false);
+                      }
+                    }}
+                    className="py-2.5 px-3 rounded-full text-[11px] font-bold text-[#14221C] bg-[#EFEFE8] hover:bg-[#E4E4DA] flex items-center justify-center gap-1.5"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Muat Template</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedPeriod) exportWeeklyRecapToCSV(selectedPeriod.label, engineResult);
+                      setIsFlowModalOpen(false);
+                    }}
+                    className="py-2.5 px-3 rounded-full text-[11px] font-bold text-[#14221C] bg-[#EFEFE8] hover:bg-[#E4E4DA] flex items-center justify-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Ekspor CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

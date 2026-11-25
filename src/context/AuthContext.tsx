@@ -12,6 +12,26 @@ interface AuthContextType {
   logout: () => void;
 }
 
+const TUTORIAL_PENDING_PREFIX = 'kalkuduit_tutorial_pending_';
+const TUTORIAL_DONE_PREFIX = 'kalkuduit_tutorial_done_';
+
+export function markTutorialPending(userId: string): void {
+  localStorage.setItem(`${TUTORIAL_PENDING_PREFIX}${userId}`, '1');
+}
+
+export function isTutorialPending(userId: string): boolean {
+  return localStorage.getItem(`${TUTORIAL_PENDING_PREFIX}${userId}`) === '1';
+}
+
+export function isTutorialDone(userId: string): boolean {
+  return localStorage.getItem(`${TUTORIAL_DONE_PREFIX}${userId}`) === '1';
+}
+
+export function markTutorialDone(userId: string): void {
+  localStorage.removeItem(`${TUTORIAL_PENDING_PREFIX}${userId}`);
+  localStorage.setItem(`${TUTORIAL_DONE_PREFIX}${userId}`, '1');
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -62,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const res = await api.register(name, email, password);
+      markTutorialPending(res.user.id);
       setUser(res.user);
       setToken(res.token);
     } finally {

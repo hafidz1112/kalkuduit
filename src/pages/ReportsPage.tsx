@@ -1,62 +1,60 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../context/FinanceContext';
-import { formatIDR, formatDateIndo } from '../lib/utils';
+import { formatIDR, getCurrentMonthPeriod } from '../lib/utils';
 import { exportWeeklyRecapToCSV, exportMonthlyRecapToCSV } from '../lib/export';
-import { StatusBadge } from '../components/StatusBadge';
+import { WeekFilter } from '../components/WeekFilter';
 import { getNeedAllocationMode } from '../lib/engine';
+import { AppTab } from '../components/MobileNav';
 import {
-  Calendar,
-  CalendarDays,
-  TrendingUp,
-  PiggyBank,
-  Download,
-  PieChart,
-  ArrowUpRight,
-  ArrowDownRight,
   ChevronLeft,
   ChevronRight,
-  Layers,
-  FileText,
-  BarChart3
+  Download,
+  Sprout
 } from 'lucide-react';
 
-export const ReportsPage: React.FC = () => {
+interface ReportsPageProps {
+  onBack?: () => void;
+  onNavigateTab?: (tab: AppTab) => void;
+}
+
+const CHART_PALETTE = ['#113829', '#3D8B68', '#78AD8F', '#B8D4BE', '#D6D9D1'];
+
+export const ReportsPage: React.FC<ReportsPageProps> = ({ onBack }) => {
   const {
     selectedPeriod,
+    periodMode,
+    switchPeriodMode,
     engineResult,
     transactions,
+    periodTransactions,
     needs,
-    goToPreviousWeek,
-    goToNextWeek,
+    openWhatIf,
   } = useFinance();
 
-  // Filter inside Reports: 'weekly' or 'monthly'
-  const [reportType, setReportType] = useState<'weekly' | 'monthly'>('weekly');
+  const [activeMetric, setActiveMetric] = useState<'spending' | 'income' | 'savings' | 'needs'>('spending');
+  const [selectedBarIdx, setSelectedBarIdx] = useState<number | null>(null);
 
-  const currentMonthName = useMemo(() => {
-    return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date());
-  }, []);
+  const activeMonthPeriod = useMemo(() => {
+    if (periodMode === 'monthly' && selectedPeriod) {
+      return {
+        startDate: selectedPeriod.start_date,
+        endDate: selectedPeriod.end_date,
+        label: selectedPeriod.label,
+      };
+    }
+    return getCurrentMonthPeriod();
+  }, [periodMode, selectedPeriod]);
 
-  // --- WEEKLY REPORT DATA ---
-  const periodTransactions = useMemo(() => {
-    return transactions.filter((t) => {
-      if (!selectedPeriod) return true;
-      if (t.period_id === selectedPeriod.id) return true;
-      return t.date >= selectedPeriod.start_date && t.date <= selectedPeriod.end_date;
-    });
-  }, [transactions, selectedPeriod]);
+  // Real data for active period (weekly or monthly)
+  const analyticsData = useMemo(() => {
+    const expenseTx = periodTransactions.filter((t) => t.type === 'expense');
+    const incomeTx = periodTransactions.filter((t) => t.type === 'income');
 
-  // --- MONTHLY REPORT DATA ---
-  const monthlyData = useMemo(() => {
-    const incomeTx = transactions.filter((t) => t.type === 'income');
-    const expenseTx = transactions.filter((t) => t.type === 'expense');
+    const totalExpense = expenseTx.reduce((s, t) => s + t.amount, 0);
+    const totalIncomeActual = incomeTx.reduce((s, t) => s + t.amount, 0);
+    const totalBudget = engineResult.total_income;
 
-    const totalIncome = incomeTx.reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = expenseTx.reduce((sum, t) => sum + t.amount, 0);
-
-    const netSavings = Math.max(0, totalIncome - totalExpense);
-    const avgWeeklyExpense = Math.round(totalExpense / 4);
-
+    // Group expenses by category (need)
     const categoryTotals = new Map<string, number>();
     for (const tx of expenseTx) {
       const key = tx.need_id || 'unassigned';
@@ -66,580 +64,436 @@ export const ReportsPage: React.FC = () => {
     const needMap = new Map<string, string>();
     needs.forEach((n) => needMap.set(n.id, n.name));
 
-    const topCategories: { categoryName: string; amount: number; percentage: number; color?: string }[] = [];
-    for (const [key, amount] of categoryTotals.entries()) {
-      const need = needs.find((n) => n.id === key);
-      const name = key === 'unassigned' ? 'Lain-lain / Tanpa Pos' : (needMap.get(key) || 'Kebutuhan Terhapus');
-      const pct = totalExpense > 0 ? (amount / totalExpense) * 100 : 0;
-      topCategories.push({
-        categoryName: name,
+    const spendingCategories: { name: string; amount: number; percentage: number; color: string }[] = [];
+    let idx = 0;
+    for (const [key, amount] of Array.from(categoryTotals.entries()).sort((a, b) => b[1] - a[1])) {
+      const name = key === 'unassigned' ? 'Lain-lain' : needMap.get(key) || 'Pos Terhapus';
+      const pct = totalExpense > 0 ? Math.round((amount / totalExpense) * 100) : 0;
+      spendingCategories.push({
+        name,
         amount,
         percentage: pct,
-        color: need?.color || '#3b82f6',
+        color: CHART_PALETTE[idx % CHART_PALETTE.length],
       });
+      idx++;
     }
 
-    topCategories.sort((a, b) => b.amount - a.amount);
-
-    const weeklyBreakdown = [
-      {
-        weekLabel: 'Pekan 1',
-        income: Math.round(totalIncome * 0.25),
-        expense: Math.round(totalExpense * 0.28),
-        balance: Math.round(totalIncome * 0.25) - Math.round(totalExpense * 0.28),
-        savings: Math.round(netSavings * 0.22),
-      },
-      {
-        weekLabel: 'Pekan 2',
-        income: Math.round(totalIncome * 0.25),
-        expense: Math.round(totalExpense * 0.24),
-        balance: Math.round(totalIncome * 0.25) - Math.round(totalExpense * 0.24),
-        savings: Math.round(netSavings * 0.26),
-      },
-      {
-        weekLabel: 'Pekan 3',
-        income: Math.round(totalIncome * 0.25),
-        expense: Math.round(totalExpense * 0.23),
-        balance: Math.round(totalIncome * 0.25) - Math.round(totalExpense * 0.23),
-        savings: Math.round(netSavings * 0.27),
-      },
-      {
-        weekLabel: 'Pekan 4',
-        income: Math.round(totalIncome * 0.25),
-        expense: Math.round(totalExpense * 0.25),
-        balance: Math.round(totalIncome * 0.25) - Math.round(totalExpense * 0.25),
-        savings: Math.round(netSavings * 0.25),
-      },
+    // Monthly 4-week breakdown for Bar Chart
+    const monthTx = transactions.filter(
+      (t) => t.date >= activeMonthPeriod.startDate && t.date <= activeMonthPeriod.endDate
+    );
+    const weekRanges = [
+      { label: 'Pkn 1', minDay: 1, maxDay: 7 },
+      { label: 'Pkn 2', minDay: 8, maxDay: 14 },
+      { label: 'Pkn 3', minDay: 15, maxDay: 21 },
+      { label: 'Pkn 4', minDay: 22, maxDay: 31 },
     ];
 
-    return {
-      totalIncome,
-      totalExpense,
-      netSavings,
-      avgWeeklyExpense,
-      topCategories,
-      weeklyBreakdown,
-    };
-  }, [transactions, needs]);
-
-  const handleExportMonthly = () => {
-    exportMonthlyRecapToCSV(
-      currentMonthName,
-      monthlyData.weeklyBreakdown,
-      monthlyData.topCategories,
-      {
-        totalIncome: monthlyData.totalIncome,
-        totalExpense: monthlyData.totalExpense,
-        netSavings: monthlyData.netSavings,
-        avgWeeklyExpense: monthlyData.avgWeeklyExpense,
+    const weeklyBars = weekRanges.map((r) => {
+      let expense = 0;
+      let income = 0;
+      for (const tx of monthTx) {
+        const day = Number(tx.date.split('-')[2] || 0);
+        if (day >= r.minDay && day <= r.maxDay) {
+          if (tx.type === 'expense') expense += tx.amount;
+          else income += tx.amount;
+        }
       }
-    );
-  };
+      return {
+        label: r.label,
+        expense,
+        income,
+        savings: Math.max(0, income - expense),
+      };
+    });
 
-  const handleExportWeekly = () => {
-    if (selectedPeriod) {
+    return {
+      totalExpense,
+      totalIncomeActual,
+      totalBudget,
+      spendingCategories,
+      weeklyBars,
+    };
+  }, [periodTransactions, engineResult, needs, transactions, activeMonthPeriod]);
+
+  // SVG Donut segments
+  const donutSegments = useMemo(() => {
+    const cats = analyticsData.spendingCategories.slice(0, 5);
+    const total = cats.reduce((s, c) => s + c.amount, 0);
+    if (total <= 0) return [];
+
+    const radius = 56;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+
+    return cats.map((cat) => {
+      const ratio = cat.amount / total;
+      const dashLength = Math.max(0, ratio * circumference - 4);
+      const seg = {
+        ...cat,
+        strokeDasharray: `${dashLength} ${circumference}`,
+        strokeDashoffset: -offset,
+      };
+      offset += ratio * circumference;
+      return seg;
+    });
+  }, [analyticsData.spendingCategories]);
+
+  const bars = analyticsData.weeklyBars;
+  const activeBarIndex =
+    selectedBarIdx !== null
+      ? selectedBarIdx
+      : bars.reduce((bestIdx, b, i, arr) => (b.expense > arr[bestIdx].expense ? i : bestIdx), 0);
+
+  const maxBarValue = Math.max(
+    ...bars.map((b) => (activeMetric === 'income' ? b.income : activeMetric === 'savings' ? b.savings : b.expense)),
+    1
+  );
+
+  const budgetUsagePct =
+    engineResult.total_income > 0
+      ? Math.round((engineResult.total_expenses / engineResult.total_income) * 100)
+      : 0;
+  const underBudgetPct = Math.max(0, 100 - budgetUsagePct);
+
+  const handleExport = () => {
+    if (periodMode === 'monthly') {
+      const totalInc = bars.reduce((s, b) => s + b.income, 0);
+      const totalExp = bars.reduce((s, b) => s + b.expense, 0);
+      exportMonthlyRecapToCSV(
+        activeMonthPeriod.label,
+        bars.map((b) => ({
+          weekLabel: b.label,
+          income: b.income,
+          expense: b.expense,
+          balance: b.income - b.expense,
+          savings: b.savings,
+        })),
+        analyticsData.spendingCategories.map((c) => ({
+          categoryName: c.name,
+          amount: c.amount,
+          percentage: c.percentage,
+        })),
+        {
+          totalIncome: totalInc,
+          totalExpense: totalExp,
+          netSavings: Math.max(0, totalInc - totalExp),
+          avgWeeklyExpense: Math.round(totalExp / 4),
+        }
+      );
+    } else if (selectedPeriod) {
       exportWeeklyRecapToCSV(selectedPeriod.label, engineResult);
     }
   };
 
   return (
-    <div className="space-y-6 pb-24 md:pb-12 max-w-5xl mx-auto">
-      {/* 1. TOP HEADER WITH FILTER LAPORAN */}
-      <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <BarChart3 className="w-6 h-6 text-slate-800" />
-              Laporan Keuangan
-            </h1>
-            <p className="text-xs text-slate-500 mt-1">
-              Evaluasi kinerja anggaran, tren belanja, dan alokasi tabungan.
-            </p>
-          </div>
-
-          {/* Filter Toggle: Mingguan vs Bulanan */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-2xl self-start sm:self-auto border border-slate-200/60">
+    <div className="space-y-4 pb-28">
+      {/* 1. MOBILE TOP HEADER (Screen 3: Back < | Title | Period Filter) */}
+      <div className="flex items-center justify-between gap-2 pt-2">
+        <div className="flex items-center gap-2">
+          {onBack && (
             <button
               type="button"
-              onClick={() => setReportType('weekly')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                reportType === 'weekly'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={onBack}
+              className="w-8 h-8 rounded-full bg-[#EFEFE8] hover:bg-[#E4E4DA] text-[#14221C] flex items-center justify-center transition-colors"
             >
-              <Calendar className="w-3.5 h-3.5 text-slate-600" />
-              Laporan Mingguan
+              <ChevronLeft className="w-4 h-4" />
             </button>
+          )}
+          <h1 className="text-base font-extrabold text-[#14221C]">Analitik</h1>
+        </div>
 
-            <button
-              type="button"
-              onClick={() => setReportType('monthly')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                reportType === 'monthly'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <CalendarDays className="w-3.5 h-3.5 text-slate-600" />
-              Laporan Bulanan
-            </button>
-          </div>
+        <div className="flex items-center gap-1.5">
+          <WeekFilter compact />
+          <button
+            type="button"
+            onClick={handleExport}
+            title="Unduh CSV"
+            className="w-8 h-8 rounded-full bg-[#EFEFE8] hover:bg-[#E4E4DA] text-[#14221C] flex items-center justify-center transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* KONDISI 1: LAPORAN MINGGUAN */}
-      {/* ======================================================== */}
-      {reportType === 'weekly' && (
-        <div className="space-y-6">
-          {/* Subheader: Week Navigation & Export */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
-            <div className="flex items-center gap-2">
+      {/* 2. HORIZONTAL PILL TABS (Screen 3: Spending / Income / Savings / Pos) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+        {[
+          { id: 'spending', label: 'Pengeluaran' },
+          { id: 'income', label: 'Pemasukan' },
+          { id: 'savings', label: 'Tabungan' },
+          { id: 'needs', label: 'Rincian Pos' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveMetric(tab.id as any)}
+            className={`px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+              activeMetric === tab.id
+                ? 'bg-[#113829] text-white'
+                : 'bg-[#EFEFE8] text-[#5C6660] hover:text-[#14221C]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 3. DONUT CHART CARD (Screen 3: Your Spending + Ring + 2-Col Legend) */}
+      {activeMetric !== 'needs' ? (
+        <div className="p-5 rounded-3xl bg-white border border-[#E6E5DD] space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-extrabold text-[#14221C]">
+              {activeMetric === 'spending'
+                ? 'Pengeluaranmu'
+                : activeMetric === 'income'
+                  ? 'Pemasukanmu'
+                  : 'Sisa & Tabungan'}
+            </h2>
+            <div className="inline-flex items-center gap-1 bg-[#EFEFE8] rounded-full p-0.5 text-[10px] font-bold">
               <button
                 type="button"
-                onClick={goToPreviousWeek}
-                title="Pekan Sebelumnya"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                onClick={() => switchPeriodMode('weekly')}
+                className={`px-2 py-0.5 rounded-full ${
+                  periodMode === 'weekly' ? 'bg-[#113829] text-white' : 'text-[#68736E]'
+                }`}
               >
-                <ChevronLeft className="w-4 h-4" />
+                Minggu
               </button>
-
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Periode Terpilih
-                </span>
-                <span className="text-sm sm:text-base font-extrabold text-slate-900">
-                  {selectedPeriod?.label || 'Pekan Ini'}
-                </span>
-              </div>
-
               <button
                 type="button"
-                onClick={goToNextWeek}
-                title="Pekan Berikutnya"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                onClick={() => switchPeriodMode('monthly')}
+                className={`px-2 py-0.5 rounded-full ${
+                  periodMode === 'monthly' ? 'bg-[#113829] text-white' : 'text-[#68736E]'
+                }`}
               >
-                <ChevronRight className="w-4 h-4" />
+                Bulan
               </button>
-
-              <div className="ml-2">
-                <StatusBadge status={engineResult.status} size="sm" />
-              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleExportWeekly}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors self-start sm:self-auto"
-            >
-              <Download className="w-4 h-4 text-slate-500" />
-              Unduh CSV Mingguan
-            </button>
           </div>
 
-          {/* 4 Kartu Ringkasan Mingguan */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {/* Pemasukan */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Pemasukan (P)</span>
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700">
-                  <ArrowUpRight className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(engineResult.total_income)}
-              </div>
-              <p className="text-[11px] text-slate-400">Total pemasukan pekan ini</p>
-            </div>
+          {/* Center Donut Ring */}
+          <div className="flex flex-col items-center justify-center py-1">
+            <div className="relative w-40 h-40 flex items-center justify-center">
+              <svg className="w-40 h-40 -rotate-90" viewBox="0 0 140 140">
+                <circle
+                  cx="70"
+                  cy="70"
+                  r="56"
+                  fill="none"
+                  stroke="#EFEFE8"
+                  strokeWidth="16"
+                />
+                {activeMetric === 'spending' &&
+                  donutSegments.map((seg, i) => (
+                    <circle
+                      key={i}
+                      cx="70"
+                      cy="70"
+                      r="56"
+                      fill="none"
+                      stroke={seg.color}
+                      strokeWidth="16"
+                      strokeLinecap="round"
+                      strokeDasharray={seg.strokeDasharray}
+                      strokeDashoffset={seg.strokeDashoffset}
+                    />
+                  ))}
+                {activeMetric === 'income' && analyticsData.totalBudget > 0 && (
+                  <circle
+                    cx="70"
+                    cy="70"
+                    r="56"
+                    fill="none"
+                    stroke="#113829"
+                    strokeWidth="16"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 56} ${2 * Math.PI * 56}`}
+                  />
+                )}
+                {activeMetric === 'savings' && engineResult.savings_ratio > 0 && (
+                  <circle
+                    cx="70"
+                    cy="70"
+                    r="56"
+                    fill="none"
+                    stroke="#3D8B68"
+                    strokeWidth="16"
+                    strokeLinecap="round"
+                    strokeDasharray={`${Math.min(1, engineResult.savings_ratio / 100) * 2 * Math.PI * 56} ${2 * Math.PI * 56}`}
+                  />
+                )}
+              </svg>
 
-            {/* Belanja Aktual */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Belanja Aktual</span>
-                <div className="p-2 rounded-xl bg-rose-50 text-rose-700">
-                  <ArrowDownRight className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(engineResult.total_expenses)}
-              </div>
-              <p className="text-[11px] text-slate-400">Total belanja riil tercatat</p>
-            </div>
-
-            {/* Sisa Kas Riil */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Sisa Saldo Kas</span>
-                <div className="p-2 rounded-xl bg-blue-50 text-blue-700">
-                  <PiggyBank className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(engineResult.actual_balance)}
-              </div>
-              <p className="text-[11px] text-slate-400">Pemasukan dikurangi belanja</p>
-            </div>
-
-            {/* Sisa Bersih (S = P - F) */}
-            <div className={`p-4 sm:p-5 rounded-3xl border shadow-xs space-y-1 ${
-              engineResult.net_remainder < 0 ? 'bg-rose-50/50 border-rose-200' : 'bg-emerald-50/50 border-emerald-200'
-            }`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-600">Sisa Bersih (S = P - F)</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white text-slate-700">
-                  Tabungan {engineResult.savings_ratio}%
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3">
+                <span className="text-base font-extrabold text-[#14221C] leading-tight">
+                  {activeMetric === 'spending'
+                    ? formatIDR(analyticsData.totalExpense)
+                    : activeMetric === 'income'
+                      ? formatIDR(engineResult.total_income)
+                      : formatIDR(Math.max(0, engineResult.net_remainder))}
+                </span>
+                <span className="text-[10px] font-medium text-[#68736E] mt-0.5">
+                  {activeMetric === 'spending'
+                    ? 'Total Belanja'
+                    : activeMetric === 'income'
+                      ? 'Total Pemasukan'
+                      : `Rasio ${engineResult.savings_ratio}%`}
                 </span>
               </div>
-              <div className={`text-lg sm:text-2xl font-extrabold tracking-tight ${
-                engineResult.net_remainder < 0 ? 'text-rose-700' : 'text-emerald-800'
-              }`}>
-                {formatIDR(engineResult.net_remainder)}
-              </div>
-              <p className="text-[11px] text-slate-500">
-                {engineResult.net_remainder < 0 ? 'Defisit anggaran' : 'Dana dialokasikan ke pos sisa'}
-              </p>
             </div>
           </div>
 
-          {/* Rincian Rencana vs Realisasi Belanja per Pos */}
-          <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-slate-700" />
-                Rincian Evaluasi Pos Kebutuhan ({engineResult.allocations.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Perbandingan batas rencana belanja terhadap pengeluaran aktual pekan ini.
+          {/* 2-Column Category Legend */}
+          {activeMetric === 'spending' && (
+            analyticsData.spendingCategories.length === 0 ? (
+              <p className="text-center text-[11px] text-[#8E9691]">
+                Belum ada pengeluaran tercatat pada {selectedPeriod?.label || 'periode ini'}.
               </p>
-            </div>
-
-            {engineResult.allocations.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                Belum ada pos kebutuhan pada pekan ini.
-              </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400 uppercase text-[10px] tracking-wider font-bold">
-                      <th className="py-2.5 pr-3">Pos Kebutuhan</th>
-                      <th className="py-2.5 px-3">Rumus</th>
-                      <th className="py-2.5 px-3">Prioritas</th>
-                      <th className="py-2.5 px-3 text-right">Jatah Rencana</th>
-                      <th className="py-2.5 px-3 text-right">Realisasi Belanja</th>
-                      <th className="py-2.5 px-3 text-right">Sisa Kuota</th>
-                      <th className="py-2.5 pl-3 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {engineResult.allocations.map((item) => {
-                      const mode = getNeedAllocationMode(item.need);
-                      const isOver = item.is_overbudget;
-
-                      return (
-                        <tr key={item.need.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3 pr-3 font-bold text-slate-900">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: item.need.color || '#10b981' }}
-                              />
-                              <span>{item.need.name}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-3">
-                            {mode === 'percent_income' ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                                {item.need.percentage}% Pemasukan
-                              </span>
-                            ) : mode === 'percent_remainder' ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                                {item.need.percentage}% Sisa Kas
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                                {item.need.billing_cycle === 'monthly' ? 'Bulanan' : 'Tetap Rp'}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 uppercase text-[10px] font-semibold text-slate-500">
-                            {item.need.priority}
-                          </td>
-                          <td className="py-3 px-3 text-right font-semibold text-slate-700">
-                            {formatIDR(item.allocated_amount)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-semibold text-slate-700">
-                            {formatIDR(item.spent_amount)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-bold text-slate-900">
-                            {formatIDR(item.remaining_amount)}
-                          </td>
-                          <td className="py-3 pl-3 text-right">
-                            {isOver ? (
-                              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md">
-                                Overbudget (+{formatIDR(item.overbudget_amount)})
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                                Sesuai
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-1">
+                {analyticsData.spendingCategories.slice(0, 6).map((cat, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      <span className="text-[#4B5852] font-medium truncate">{cat.name}</span>
+                    </div>
+                    <span className="font-bold text-[#14221C] ml-1 shrink-0">{cat.percentage}%</span>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-
-          {/* Riwayat Transaksi di Pekan Ini */}
-          <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-slate-700" />
-                Riwayat Transaksi Pekan Ini ({periodTransactions.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Semua pemasukan dan pengeluaran yang dicatat pada pekan ini.
-              </p>
-            </div>
-
-            {periodTransactions.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                Belum ada transaksi yang dicatat pada pekan ini.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {periodTransactions.map((tx) => {
-                  const need = needs.find((n) => n.id === tx.need_id);
-                  const isIncome = tx.type === 'income';
-
-                  return (
-                    <div key={tx.id} className="py-2.5 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={`p-1.5 rounded-lg shrink-0 ${isIncome ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                          {isIncome ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                        </div>
-                        <div className="min-w-0 truncate">
-                          <span className="font-bold text-slate-900 mr-2">
-                            {tx.note || (isIncome ? 'Pemasukan' : need?.name || 'Pengeluaran')}
-                          </span>
-                          {need && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-medium">
-                              {need.name}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400 ml-2">
-                            {formatDateIndo(tx.date)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <span className={`font-bold shrink-0 ${isIncome ? 'text-emerald-700' : 'text-slate-900'}`}>
-                        {isIncome ? `+${formatIDR(tx.amount)}` : `-${formatIDR(tx.amount)}`}
+            )
+          )}
+        </div>
+      ) : (
+        /* Rincian Pos Mode */
+        <div className="p-4 rounded-3xl bg-white border border-[#E6E5DD] space-y-3">
+          <h2 className="text-xs font-extrabold text-[#14221C]">
+            Evaluasi Pos ({engineResult.allocations.length})
+          </h2>
+          {engineResult.allocations.length === 0 ? (
+            <p className="text-center py-6 text-xs text-[#8E9691]">Belum ada pos kebutuhan.</p>
+          ) : (
+            <div className="divide-y divide-[#EFEFE8]">
+              {engineResult.allocations.map((item) => {
+                const mode = getNeedAllocationMode(item.need);
+                return (
+                  <div key={item.need.id} className="py-2.5 flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <span className="font-bold text-[#14221C] block truncate">{item.need.name}</span>
+                      <span className="text-[10px] text-[#68736E]">
+                        {mode === 'percent_income'
+                          ? `${item.need.percentage}% Pemasukan`
+                          : mode === 'percent_remainder'
+                            ? `${item.need.percentage}% Sisa`
+                            : 'Nominal Tetap'}
+                        {' · '}Jatah {formatIDR(item.allocated_amount)}
                       </span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-bold text-[#14221C] block">{formatIDR(item.spent_amount)}</span>
+                      <span className={`text-[10px] font-bold ${item.is_overbudget ? 'text-rose-600' : 'text-[#3D8B68]'}`}>
+                        {item.is_overbudget ? 'Overbudget' : `Sisa ${formatIDR(item.remaining_amount)}`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* KONDISI 2: LAPORAN BULANAN */}
-      {/* ======================================================== */}
-      {reportType === 'monthly' && (
-        <div className="space-y-6">
-          {/* Subheader: Month Info & Export */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Bulan Evaluasi
-              </span>
-              <span className="text-sm sm:text-base font-extrabold text-slate-900">
-                Bulan {currentMonthName}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleExportMonthly}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors self-start sm:self-auto"
-            >
-              <Download className="w-4 h-4 text-slate-500" />
-              Unduh CSV Bulanan
-            </button>
+      {/* 4. SAGE INSIGHT BANNER (Screen 3: "You're X% under budget!") */}
+      <button
+        type="button"
+        onClick={openWhatIf}
+        className="w-full text-left rounded-2xl bg-[#EAEFE4] border border-[#DAE3D2] px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#E1E8D9] transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-[#D7E6CE] text-[#113829] flex items-center justify-center shrink-0">
+            <Sprout className="w-4 h-4" />
           </div>
-
-          {/* 4 Summary Cards Bulanan */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {/* Total Income */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Pemasukan</span>
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700">
-                  <ArrowUpRight className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(monthlyData.totalIncome)}
-              </div>
-              <p className="text-[11px] text-slate-400">Total 4 pekan</p>
-            </div>
-
-            {/* Total Expense */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Pengeluaran</span>
-                <div className="p-2 rounded-xl bg-rose-50 text-rose-700">
-                  <ArrowDownRight className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(monthlyData.totalExpense)}
-              </div>
-              <p className="text-[11px] text-slate-400">Total belanja aktual</p>
-            </div>
-
-            {/* Total Savings */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Tabungan Terkumpul</span>
-                <div className="p-2 rounded-xl bg-purple-50 text-purple-700">
-                  <PiggyBank className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(monthlyData.netSavings)}
-              </div>
-              <p className="text-[11px] text-slate-400">Akumulasi sisa kas</p>
-            </div>
-
-            {/* Avg Weekly Expense */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-500">Rata-rata / Pekan</span>
-                <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
-                  <CalendarDays className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-                {formatIDR(monthlyData.avgWeeklyExpense)}
-              </div>
-              <p className="text-[11px] text-slate-400">Pengeluaran per 7 hari</p>
-            </div>
-          </div>
-
-          {/* Grid: 4-Week Trend & Top Categories */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Trend Bar */}
-            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-slate-700" />
-                  Tren Belanja 4 Pekan
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Perbandingan pengeluaran antar pekan.
-                </p>
-              </div>
-
-              <div className="space-y-4 pt-2">
-                {monthlyData.weeklyBreakdown.map((week, idx) => {
-                  const maxVal = Math.max(...monthlyData.weeklyBreakdown.map((w) => Math.max(w.income, w.expense)), 1);
-                  const expenseWidth = Math.round((week.expense / maxVal) * 100);
-
-                  return (
-                    <div key={idx} className="space-y-1 text-xs">
-                      <div className="flex items-center justify-between font-semibold text-slate-800">
-                        <span>{week.weekLabel}</span>
-                        <span className="text-[11px] text-slate-500">
-                          {formatIDR(week.expense)}
-                        </span>
-                      </div>
-
-                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                        <div
-                          className="bg-slate-900 h-full rounded-full"
-                          style={{ width: `${expenseWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
-                <span>Rata-rata: {formatIDR(monthlyData.avgWeeklyExpense)}/pekan</span>
-                <span>Total: {formatIDR(monthlyData.totalExpense)}</span>
-              </div>
-            </div>
-
-            {/* Top Expense Categories */}
-            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <PieChart className="w-4 h-4 text-slate-700" />
-                  Pengeluaran Terbesar
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Daftar pos dengan pengeluaran paling tinggi.
-                </p>
-              </div>
-
-              {monthlyData.topCategories.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-xs">
-                  Belum ada data pengeluaran bulan ini.
-                </div>
-              ) : (
-                <div className="space-y-3.5 pt-1">
-                  {monthlyData.topCategories.slice(0, 5).map((cat, idx) => (
-                    <div key={idx} className="space-y-1 text-xs">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded bg-slate-100 text-slate-700 font-bold text-[10px] flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-                          <span className="font-semibold text-slate-900">{cat.categoryName}</span>
-                        </div>
-                        <div className="text-right">
-                          <strong className="text-slate-900">{formatIDR(cat.amount)}</strong>
-                          <span className="text-slate-500 text-[11px] ml-1.5 font-normal">
-                            ({cat.percentage.toFixed(1)}%)
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.min(100, cat.percentage)}%`,
-                            backgroundColor: cat.color || '#3b82f6',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {monthlyData.topCategories[0] && (
-                <div className="p-3 rounded-2xl bg-slate-50 text-[11px] text-slate-600 border border-slate-200">
-                  Pos <strong>{monthlyData.topCategories[0].categoryName}</strong> memakan{' '}
-                  <strong>{monthlyData.topCategories[0].percentage.toFixed(0)}%</strong> dari total pengeluaran bulan ini.
-                </div>
-              )}
-            </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-[#113829]">
+              {engineResult.total_income === 0
+                ? 'Atur target pemasukan untuk mulai evaluasi'
+                : engineResult.total_expenses <= engineResult.total_income
+                  ? `Hemat ${underBudgetPct}% dari total bujet!`
+                  : 'Pengeluaran melebihi pemasukan'}
+            </p>
+            <p className="text-[11px] text-[#4E5C54] truncate">
+              {engineResult.status_description}
+            </p>
           </div>
         </div>
-      )}
+        <ChevronRight className="w-4 h-4 text-[#113829] shrink-0" />
+      </button>
+
+      {/* 5. SPENDING TREND BAR CHART (Screen 3: Rounded Sage Bars + Dark Active Bar + Pill Tooltip) */}
+      <div className="p-5 rounded-3xl bg-white border border-[#E6E5DD] space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-extrabold text-[#14221C]">
+              {activeMetric === 'income'
+                ? 'Tren Pemasukan'
+                : activeMetric === 'savings'
+                  ? 'Tren Sisa Kas'
+                  : 'Tren Pengeluaran'}
+            </h2>
+            <p className="text-[10px] text-[#68736E]">{activeMonthPeriod.label}</p>
+          </div>
+          <span className="text-[10px] font-bold text-[#113829] bg-[#EAEFE4] px-2.5 py-1 rounded-full">
+            Ketuk batang
+          </span>
+        </div>
+
+        <div className="grid grid-cols-4 gap-3 items-end h-36 pt-7">
+          {bars.map((bar, i) => {
+            const val =
+              activeMetric === 'income'
+                ? bar.income
+                : activeMetric === 'savings'
+                  ? bar.savings
+                  : bar.expense;
+            const heightPct = maxBarValue > 0 ? Math.max(10, Math.round((val / maxBarValue) * 100)) : 10;
+            const isSelected = i === activeBarIndex;
+
+            return (
+              <button
+                key={bar.label}
+                type="button"
+                onClick={() => setSelectedBarIdx(i)}
+                className="flex flex-col items-center justify-end h-full gap-2 group relative"
+              >
+                {isSelected && (
+                  <span className="absolute -top-6 px-2 py-0.5 rounded-full bg-[#113829] text-white text-[10px] font-bold whitespace-nowrap shadow-xs">
+                    {formatIDR(val)}
+                  </span>
+                )}
+                <div className="w-full flex items-end justify-center h-24">
+                  <div
+                    className={`w-9 rounded-t-xl transition-all ${
+                      isSelected ? 'bg-[#113829]' : 'bg-[#A6BDA9] group-hover:bg-[#78AD8F]'
+                    }`}
+                    style={{ height: `${heightPct}%` }}
+                  />
+                </div>
+                <span
+                  className={`text-[10px] font-bold ${
+                    isSelected ? 'text-[#113829]' : 'text-[#8E9691]'
+                  }`}
+                >
+                  {bar.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };

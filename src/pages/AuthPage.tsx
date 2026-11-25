@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Wallet, Lock, Mail, User as UserIcon } from 'lucide-react';
+import { Wallet, Lock, Mail, User as UserIcon, ArrowRight } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
   const { login, register, loginAsDemo } = useAuth();
@@ -53,35 +53,45 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
-      <div className="w-full max-w-sm space-y-6">
-        {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-900 text-white shadow-md mb-1">
-            <Wallet className="w-6 h-6" />
+    <div className="h-[100dvh] overflow-hidden bg-[#F3F1EC] flex justify-center">
+      <div className="w-full max-w-[440px] h-[100dvh] overflow-hidden bg-[#113829] text-white flex flex-col justify-start gap-4 px-4 pt-4 pb-8 sm:shadow-2xl">
+        {/* Top Hero Branding (Screen 1 Aesthetic) */}
+        <div className="space-y-2.5 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/15">
+              <Wallet className="w-3.5 h-3.5 text-[#B8DEC4]" />
+              <span className="text-xs font-bold tracking-tight text-white">KalkuDuit</span>
+            </div>
+            <span className="text-[11px] font-semibold text-[#B8DEC4]">
+              Mobile Finance
+            </span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-            KalkuDuit
-          </h1>
-          <p className="text-xs text-slate-500">
-            Pengatur Keuangan Mingguan Adaptif
-          </p>
+
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-extrabold tracking-tight leading-[1.15] text-white">
+              Atur Uang,{' '}
+              <span className="text-[#B8DEC4]">Lebih Tenang.</span>
+            </h1>
+            <p className="text-[11px] text-[#C8DFCE] leading-snug max-w-[300px]">
+              Catat pemasukan, bagi pos mingguan & bulanan otomatis, dan pantau tabungan dalam satu genggaman.
+            </p>
+          </div>
         </div>
 
-        {/* Auth Card */}
-        <div className="p-6 sm:p-7 rounded-3xl bg-white shadow-xs border border-slate-200 space-y-5">
+        {/* Bottom Auth Card */}
+        <div className="p-4 rounded-[24px] bg-[#FAF8F5] text-[#14221C] shadow-2xl space-y-2.5 shrink-0">
           {/* Tabs */}
-          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+          <div className="grid grid-cols-2 gap-1 p-1 bg-[#EAE9E1] rounded-2xl text-xs font-semibold">
             <button
               type="button"
               onClick={() => {
                 setMode('login');
                 setError('');
               }}
-              className={`py-2 rounded-lg transition-all ${
+              className={`py-2 rounded-xl transition-all ${
                 mode === 'login'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-[#113829] text-white shadow-xs'
+                  : 'text-[#68736E] hover:text-[#14221C]'
               }`}
             >
               Masuk
@@ -92,10 +102,10 @@ export const AuthPage: React.FC = () => {
                 setMode('register');
                 setError('');
               }}
-              className={`py-2 rounded-lg transition-all ${
+              className={`py-2 rounded-xl transition-all ${
                 mode === 'register'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-[#113829] text-white shadow-xs'
+                  : 'text-[#68736E] hover:text-[#14221C]'
               }`}
             >
               Daftar Akun
@@ -103,59 +113,59 @@ export const AuthPage: React.FC = () => {
           </div>
 
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-medium">
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800 font-medium">
               {error}
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-2.5">
             {mode === 'register' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-[11px] font-bold text-[#4B5852] mb-0.5">
                   Nama Lengkap
                 </label>
                 <div className="relative">
-                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <UserIcon className="w-3.5 h-3.5 text-[#7C8580] absolute left-3.5 top-2.5" />
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Nama Anda"
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs font-medium rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-brand-500"
+                    className="w-full pl-9 pr-3.5 py-2 text-xs font-medium rounded-2xl border border-[#E1E0D8] bg-white focus:outline-none focus:border-[#113829]"
                   />
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-[11px] font-bold text-[#4B5852] mb-0.5">
                 Email
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <Mail className="w-3.5 h-3.5 text-[#7C8580] absolute left-3.5 top-2.5" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@email.com"
-                  className="w-full pl-10 pr-3.5 py-2.5 text-xs font-medium rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-brand-500"
+                  className="w-full pl-9 pr-3.5 py-2 text-xs font-medium rounded-2xl border border-[#E1E0D8] bg-white focus:outline-none focus:border-[#113829]"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-[11px] font-bold text-[#4B5852] mb-0.5">
                 Kata Sandi
               </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <Lock className="w-3.5 h-3.5 text-[#7C8580] absolute left-3.5 top-2.5" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-3.5 py-2.5 text-xs font-medium rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-brand-500"
+                  className="w-full pl-9 pr-3.5 py-2 text-xs font-medium rounded-2xl border border-[#E1E0D8] bg-white focus:outline-none focus:border-[#113829]"
                 />
               </div>
             </div>
@@ -163,25 +173,23 @@ export const AuthPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-colors disabled:opacity-50"
+              className="w-full py-2.5 rounded-full text-xs font-bold text-white bg-[#113829] hover:bg-[#0D2D20] transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2 shadow-md shadow-[#113829]/20"
             >
-              {isSubmitting ? 'Memproses...' : mode === 'login' ? 'Masuk' : 'Buat Akun'}
+              <span>{isSubmitting ? 'Memproses...' : mode === 'login' ? 'Masuk Sekarang' : 'Buat Akun Baru'}</span>
+              {!isSubmitting && <ArrowRight className="w-3.5 h-3.5" />}
             </button>
           </form>
 
           {/* Quick Demo Login Option */}
-          <div className="pt-2 border-t border-slate-100">
+          <div className="pt-2 border-t border-[#E6E5DD]">
             <button
               type="button"
               onClick={handleDemoLogin}
               disabled={isSubmitting}
-              className="w-full py-2 px-3 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              className="w-full py-2 px-3 rounded-full text-xs font-bold text-[#113829] bg-[#E8EDE4] hover:bg-[#DCE4D7] transition-colors"
             >
-              Masuk Akun Demo (Fadhil Pratama)
+              Coba Akun Demo
             </button>
-            <p className="text-[10px] text-center text-slate-400 mt-1.5">
-              Data contoh pos kebutuhan dan transaksi pekan ini sudah terpasang.
-            </p>
           </div>
         </div>
       </div>

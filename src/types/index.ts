@@ -2,6 +2,7 @@ export type NeedType = 'fixed' | 'flexible';
 export type NeedAllocationMode = 'nominal' | 'percent_income' | 'percent_remainder';
 export type NeedPriority = 'wajib' | 'penting' | 'keinginan';
 export type BillingCycle = 'weekly' | 'monthly';
+export type PeriodMode = 'weekly' | 'monthly';
 export type TransactionType = 'income' | 'expense';
 export type FinancialHealthStatus = 'aman' | 'ketat' | 'defisit';
 

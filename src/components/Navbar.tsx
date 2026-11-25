@@ -3,15 +3,17 @@ import { useAuth } from '../context/AuthContext';
 import { WeekFilter } from './WeekFilter';
 import {
   Wallet,
-  LogOut
+  LogOut,
+  HelpCircle
 } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  onStartTutorial?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
+export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onStartTutorial }) => {
   const { user, logout } = useAuth();
 
   const navItems = [
@@ -54,7 +56,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
         {/* Right Section: Weekly Filter & User Profile */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Week Filter (Segmented < Pekan Ini > with clean popover) */}
-          <WeekFilter />
+          <div data-tour="week-filter">
+            <WeekFilter />
+          </div>
+
+          {onStartTutorial && (
+            <button
+              type="button"
+              onClick={onStartTutorial}
+              title="Panduan Penggunaan"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Panduan</span>
+            </button>
+          )}
 
           {/* User profile & logout */}
           <div className="flex items-center gap-1 pl-1 border-l border-slate-200">

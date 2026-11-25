@@ -46,6 +46,14 @@ export function convertMonthlyToWeekly(monthlyAmount: number, roundToNearestThou
 }
 
 /**
+ * Convert weekly bill into monthly allocation (4 weeks)
+ */
+export function convertWeeklyToMonthly(weeklyAmount: number): number {
+  if (!weeklyAmount || weeklyAmount <= 0) return 0;
+  return weeklyAmount * 4;
+}
+
+/**
  * Format date to Indonesian localized string
  */
 export function formatDateIndo(dateStr: string): string {
@@ -160,5 +168,63 @@ export function getCurrentWeekPeriod(date = new Date()): {
     startDate: currentWeek.startDate,
     endDate: currentWeek.endDate,
     label: currentWeek.label,
+  };
+}
+
+export interface MonthOption {
+  startDate: string;
+  endDate: string;
+  label: string;
+  shortLabel: string;
+  isCurrentMonth: boolean;
+  offset: number;
+}
+
+/**
+ * Calculate monthly period info for a given offset from current month
+ */
+export function getMonthOptionByOffset(offset = 0, baseDate = new Date()): MonthOption {
+  const firstDay = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+  const lastDay = new Date(firstDay.getFullYear(), firstDay.getMonth() + 1, 0);
+
+  const format = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const fullMonthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const shortMonthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+    'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+  ];
+
+  const year = firstDay.getFullYear();
+  const monthIdx = firstDay.getMonth();
+
+  return {
+    startDate: format(firstDay),
+    endDate: format(lastDay),
+    label: `${fullMonthNames[monthIdx]} ${year}`,
+    shortLabel: `${shortMonthNames[monthIdx]} ${year}`,
+    isCurrentMonth: offset === 0,
+    offset,
+  };
+}
+
+export function getCurrentMonthPeriod(date = new Date()): {
+  startDate: string;
+  endDate: string;
+  label: string;
+} {
+  const currentMonth = getMonthOptionByOffset(0, date);
+  return {
+    startDate: currentMonth.startDate,
+    endDate: currentMonth.endDate,
+    label: currentMonth.label,
   };
 }
