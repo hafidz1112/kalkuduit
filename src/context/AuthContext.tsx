@@ -52,15 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(null);
         }
       } else {
-        // If no token, check if we can auto-login demo user for immediate great experience
-        try {
-          const res = await api.me();
-          if (res.user) {
-            setUser(res.user);
-          }
-        } catch {
-          // It's ok if not logged in
-        }
+        setUser(null);
       }
       setIsLoading(false);
     }
