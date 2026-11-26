@@ -93,3 +93,8 @@ export function getDatabaseConfig(): DatabaseConfig {
     mode: 'local-json',
   };
 }
+
+export function getGoogleClientId(): string {
+  loadEnvFiles();
+  return cleanEnvValue(process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID);
+}

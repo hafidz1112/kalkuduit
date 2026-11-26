@@ -35,6 +35,7 @@ export interface DatabaseRepository {
   findUserByEmail(email: string): Promise<StoredUser | null>;
   getFallbackDemoUser(): Promise<StoredUser | null>;
   createUser(user: StoredUser): Promise<StoredUser>;
+  updateUser(id: string, patch: Partial<Pick<StoredUser, 'name' | 'avatar'>>): Promise<StoredUser | null>;
 
   findValidSession(token: string): Promise<SessionRecord | null>;
   createSession(session: SessionRecord): Promise<void>;
@@ -101,6 +102,23 @@ class JsonDatabaseRepository implements DatabaseRepository {
     db.users.push(user);
     writeDb(db);
     return user;
+  }
+
+  async updateUser(
+    id: string,
+    patch: Partial<Pick<StoredUser, 'name' | 'avatar'>>
+  ): Promise<StoredUser | null> {
+    const db = readDb();
+    const index = db.users.findIndex((u) => u.id === id);
+    if (index === -1) return null;
+    const updated: StoredUser = {
+      ...db.users[index],
+      ...(patch.name !== undefined && { name: patch.name }),
+      ...(patch.avatar !== undefined && { avatar: patch.avatar }),
+    };
+    db.users[index] = updated;
+    writeDb(db);
+    return updated;
   }
 
   async findValidSession(token: string): Promise<SessionRecord | null> {
@@ -467,6 +485,31 @@ class TursoDatabaseRepository implements DatabaseRepository {
       ]
     );
     return user;
+  }
+
+  async updateUser(
+    id: string,
+    patch: Partial<Pick<StoredUser, 'name' | 'avatar'>>
+  ): Promise<StoredUser | null> {
+    await this.ensureSchema();
+    const sets: string[] = [];
+    const args: TursoParam[] = [];
+
+    if (patch.name !== undefined) {
+      sets.push('name = ?');
+      args.push(patch.name);
+    }
+    if (patch.avatar !== undefined) {
+      sets.push('avatar = ?');
+      args.push(patch.avatar || null);
+    }
+
+    if (sets.length > 0) {
+      args.push(id);
+      await this.client.execute(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, args);
+    }
+
+    return this.findUserById(id);
   }
 
   async findValidSession(token: string): Promise<SessionRecord | null> {

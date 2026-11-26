@@ -8,6 +8,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   loginAsDemo: () => Promise<void>;
   logout: () => void;
 }
@@ -82,11 +83,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    setIsLoading(true);
+    try {
+      const res = await api.loginWithGoogle(credential);
+      if (res.isNewUser) {
+        markTutorialPending(res.user.id);
+      }
+      setUser(res.user);
+      setToken(res.token);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const loginAsDemo = async () => {
-    await login('demo@kalkuduit.id', 'password123');
+    setIsLoading(true);
+    try {
+      const res = await api.loginAsDemo();
+      setUser(res.user);
+      setToken(res.token);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const logout = () => {
+    try {
+      (window as any).google?.accounts?.id?.disableAutoSelect?.();
+    } catch {
+      // Ignore if GIS script is unavailable
+    }
     api.logout();
     setUser(null);
     setToken(null);
@@ -100,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         register,
+        loginWithGoogle,
         loginAsDemo,
         logout,
       }}

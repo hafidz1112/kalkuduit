@@ -58,6 +58,10 @@ async function fetchApi<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 export const api = {
   // Auth
+  getAuthConfig: async () => {
+    return fetchApi<{ googleClientId: string | null; googleEnabled: boolean }>('/auth/config');
+  },
+
   login: async (email: string, password: string) => {
     const data = await fetchApi<{ user: User; token: string }>('/auth/login', {
       method: 'POST',
@@ -72,6 +76,25 @@ export const api = {
     const data = await fetchApi<{ user: User; token: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password }),
+    });
+    setStoredToken(data.token);
+    setStoredUser(data.user);
+    return data;
+  },
+
+  loginWithGoogle: async (credential: string) => {
+    const data = await fetchApi<{ user: User; token: string; isNewUser?: boolean }>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+    setStoredToken(data.token);
+    setStoredUser(data.user);
+    return data;
+  },
+
+  loginAsDemo: async () => {
+    const data = await fetchApi<{ user: User; token: string }>('/auth/demo', {
+      method: 'POST',
     });
     setStoredToken(data.token);
     setStoredUser(data.user);

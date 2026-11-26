@@ -1,8 +1,8 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import { loadEnvFiles } from './env';
+import { loadEnvFiles, getGoogleClientId } from './env';
 import { getDbRepository } from './repository';
-import { hashPassword, verifyPassword, generateToken } from './auth';
+import { hashPassword, verifyPassword, generateToken, verifyGoogleIdToken } from './auth';
 import { calculateHybridAllocation, simulateWhatIf } from '../lib/engine';
 import { Need, PeriodMode, Transaction, WeeklyPeriod } from '../types';
 
@@ -29,7 +29,7 @@ apiRouter.get(
   })
 );
 
-// Middleware to extract user from Authorization header (Bearer token or demo fallback)
+// Middleware to extract user from Authorization header (Bearer token required)
 const authMiddleware = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   const repo = getDbRepository();
@@ -46,29 +46,31 @@ const authMiddleware = asyncHandler(async (req: Request, res: Response, next: Ne
     }
   }
 
-  // Fallback to first demo user for smooth local experience if no token provided
-  const fallbackUser = await repo.getFallbackDemoUser();
-  if (fallbackUser) {
-    (req as any).user = fallbackUser;
-    return next();
-  }
-
-  res.status(401).json({ error: 'Unauthorized. Please login.' });
+  res.status(401).json({ error: 'Sesi login tidak valid atau telah berakhir. Silakan masuk kembali.' });
 });
 
 // --- AUTH ROUTES ---
 
+apiRouter.get('/auth/config', (_req: Request, res: Response) => {
+  const googleClientId = getGoogleClientId();
+  res.json({
+    googleClientId: googleClientId || null,
+    googleEnabled: Boolean(googleClientId),
+  });
+});
+
 apiRouter.post(
   '/auth/register',
   asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, password } = req.body;
+    const { name, email, password } = req.body || {};
     if (!name || !email || !password) {
       res.status(400).json({ error: 'Nama, email, dan password wajib diisi.' });
       return;
     }
 
     const repo = getDbRepository();
-    const existing = await repo.findUserByEmail(email);
+    const cleanEmail = String(email).trim().toLowerCase();
+    const existing = await repo.findUserByEmail(cleanEmail);
     if (existing) {
       res.status(400).json({ error: 'Email sudah terdaftar.' });
       return;
@@ -77,10 +79,10 @@ apiRouter.post(
     const userId = `user-${Date.now()}`;
     const newUser = await repo.createUser({
       id: userId,
-      name,
-      email: email.toLowerCase(),
+      name: String(name).trim(),
+      email: cleanEmail,
       created_at: new Date().toISOString(),
-      password_hash: hashPassword(password),
+      password_hash: hashPassword(String(password)),
     });
 
     const token = generateToken();
@@ -98,15 +100,27 @@ apiRouter.post(
 apiRouter.post(
   '/auth/login',
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
     if (!email || !password) {
       res.status(400).json({ error: 'Email dan password wajib diisi.' });
       return;
     }
 
     const repo = getDbRepository();
-    const user = await repo.findUserByEmail(email);
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    const user = await repo.findUserByEmail(String(email).trim().toLowerCase());
+    if (!user) {
+      res.status(401).json({ error: 'Email atau password salah.' });
+      return;
+    }
+
+    if (user.password_hash === 'google-oauth') {
+      res.status(401).json({
+        error: 'Akun ini terdaftar lewat Google. Silakan masuk menggunakan tombol Google.',
+      });
+      return;
+    }
+
+    if (!verifyPassword(String(password), user.password_hash)) {
       res.status(401).json({ error: 'Email atau password salah.' });
       return;
     }
@@ -119,6 +133,94 @@ apiRouter.post(
     });
 
     const { password_hash, ...safeUser } = user;
+    res.json({ user: safeUser, token });
+  })
+);
+
+apiRouter.post(
+  '/auth/google',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { credential } = req.body || {};
+    if (!credential || typeof credential !== 'string') {
+      res.status(400).json({ error: 'Token kredensial Google tidak ditemukan.' });
+      return;
+    }
+
+    const googleClientId = getGoogleClientId();
+    if (!googleClientId) {
+      res.status(500).json({
+        error: 'GOOGLE_CLIENT_ID belum dikonfigurasi di server (.env atau Environment Variables).',
+      });
+      return;
+    }
+
+    let googleUser;
+    try {
+      googleUser = await verifyGoogleIdToken(credential, googleClientId);
+    } catch (err: any) {
+      res.status(401).json({ error: err?.message || 'Verifikasi akun Google gagal.' });
+      return;
+    }
+
+    const repo = getDbRepository();
+    let user = await repo.findUserByEmail(googleUser.email);
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+      user = await repo.createUser({
+        id: `user-${Date.now()}`,
+        name: googleUser.name,
+        email: googleUser.email,
+        avatar: googleUser.picture,
+        created_at: new Date().toISOString(),
+        password_hash: 'google-oauth',
+      });
+    } else if (
+      (googleUser.name && googleUser.name !== user.name) ||
+      (googleUser.picture && googleUser.picture !== user.avatar)
+    ) {
+      const updated = await repo.updateUser(user.id, {
+        name: googleUser.name || user.name,
+        avatar: googleUser.picture || user.avatar,
+      });
+      if (updated) user = updated;
+    }
+
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: user.id,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
+    });
+
+    const { password_hash, ...safeUser } = user;
+    res.json({ user: safeUser, token, isNewUser });
+  })
+);
+
+apiRouter.post(
+  '/auth/demo',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const repo = getDbRepository();
+    let demoUser = await repo.findUserByEmail('demo@kalkuduit.id');
+    if (!demoUser) {
+      demoUser = await repo.getFallbackDemoUser();
+    }
+
+    if (!demoUser) {
+      res.status(404).json({ error: 'Akun demo belum tersedia.' });
+      return;
+    }
+
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: demoUser.id,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+
+    const { password_hash, ...safeUser } = demoUser;
     res.json({ user: safeUser, token });
   })
 );

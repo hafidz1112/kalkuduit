@@ -25,6 +25,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onOpenGuidebook,
 }) => {
   const { user, logout } = useAuth();
+  const [avatarFailed, setAvatarFailed] = React.useState(false);
   const {
     periodMode,
     switchPeriodMode,
@@ -44,8 +45,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       {/* User Card */}
       <div className="p-4 rounded-3xl bg-[#113829] text-white flex items-center gap-3.5 shadow-sm">
-        <div className="w-12 h-12 rounded-2xl bg-[#22533E] text-[#D7F0E0] font-extrabold text-lg flex items-center justify-center shrink-0">
-          {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+        <div className="w-12 h-12 rounded-2xl bg-[#22533E] text-[#D7F0E0] font-extrabold text-lg flex items-center justify-center shrink-0 overflow-hidden">
+          {user?.avatar && !avatarFailed ? (
+            <img
+              src={user.avatar}
+              alt={user.name || 'Avatar'}
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarFailed(true)}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            user?.name ? user.name.charAt(0).toUpperCase() : 'U'
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">

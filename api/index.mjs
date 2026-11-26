@@ -67,6 +67,10 @@ function getDatabaseConfig() {
     mode: "local-json"
   };
 }
+function getGoogleClientId() {
+  loadEnvFiles();
+  return cleanEnvValue(process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID);
+}
 
 // src/server/db.ts
 import fs2 from "fs";
@@ -91,6 +95,91 @@ function verifyPassword(password, stored) {
 }
 function generateToken() {
   return crypto.randomBytes(32).toString("hex");
+}
+var cachedGoogleCerts = null;
+async function fetchGoogleJwks(forceRefresh = false) {
+  if (!forceRefresh && cachedGoogleCerts && cachedGoogleCerts.expiresAt > Date.now()) {
+    return cachedGoogleCerts.keys;
+  }
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+  if (!res.ok) {
+    throw new Error("Gagal mengambil kunci verifikasi Google.");
+  }
+  const data = await res.json();
+  const keys = Array.isArray(data.keys) ? data.keys : [];
+  let maxAgeSec = 3600;
+  const cacheControl = res.headers.get("cache-control");
+  const match = cacheControl?.match(/max-age=(\d+)/i);
+  if (match) {
+    maxAgeSec = Math.max(60, Number(match[1]) || 3600);
+  }
+  cachedGoogleCerts = {
+    keys,
+    expiresAt: Date.now() + maxAgeSec * 1e3
+  };
+  return keys;
+}
+async function verifyGoogleIdToken(idToken, expectedClientId) {
+  if (!expectedClientId) {
+    throw new Error("GOOGLE_CLIENT_ID belum dikonfigurasi di server.");
+  }
+  const parts = idToken.split(".");
+  if (parts.length !== 3) {
+    throw new Error("Format token Google tidak valid.");
+  }
+  const [headerB64, payloadB64, signatureB64] = parts;
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(Buffer.from(headerB64, "base64url").toString("utf-8"));
+    payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+  } catch {
+    throw new Error("Token Google tidak dapat didekode.");
+  }
+  if (header.alg !== "RS256" || !header.kid) {
+    throw new Error("Algoritma atau key ID token Google tidak valid.");
+  }
+  let keys = await fetchGoogleJwks(false);
+  let jwk = keys.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    keys = await fetchGoogleJwks(true);
+    jwk = keys.find((k) => k.kid === header.kid);
+  }
+  if (!jwk) {
+    throw new Error("Kunci publik Google tidak ditemukan untuk token ini.");
+  }
+  const publicKey = crypto.createPublicKey({ key: jwk, format: "jwk" });
+  const isSignatureValid = crypto.verify(
+    "RSA-SHA256",
+    Buffer.from(`${headerB64}.${payloadB64}`),
+    publicKey,
+    Buffer.from(signatureB64, "base64url")
+  );
+  if (!isSignatureValid) {
+    throw new Error("Tanda tangan token Google tidak valid.");
+  }
+  const validIssuers = ["https://accounts.google.com", "accounts.google.com"];
+  if (!validIssuers.includes(String(payload.iss || ""))) {
+    throw new Error("Issuer token Google tidak valid.");
+  }
+  if (payload.aud !== expectedClientId) {
+    throw new Error("Client ID token Google tidak sesuai dengan konfigurasi aplikasi.");
+  }
+  if (typeof payload.exp !== "number" || payload.exp * 1e3 <= Date.now() - 3e4) {
+    throw new Error("Sesi login Google sudah kedaluwarsa. Silakan coba lagi.");
+  }
+  const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+  if (!email || payload.email_verified !== true) {
+    throw new Error("Email Google belum terverifikasi.");
+  }
+  const fallbackName = email.split("@")[0] || "Pengguna";
+  return {
+    sub: String(payload.sub || ""),
+    email,
+    email_verified: true,
+    name: typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : fallbackName,
+    picture: typeof payload.picture === "string" ? payload.picture : void 0
+  };
 }
 
 // src/lib/periodUtils.ts
@@ -520,6 +609,19 @@ var JsonDatabaseRepository = class {
     writeDb(db);
     return user;
   }
+  async updateUser(id, patch) {
+    const db = readDb();
+    const index = db.users.findIndex((u) => u.id === id);
+    if (index === -1) return null;
+    const updated = {
+      ...db.users[index],
+      ...patch.name !== void 0 && { name: patch.name },
+      ...patch.avatar !== void 0 && { avatar: patch.avatar }
+    };
+    db.users[index] = updated;
+    writeDb(db);
+    return updated;
+  }
   async findValidSession(token) {
     const db = readDb();
     return db.sessions.find((s) => s.token === token && s.expires_at > Date.now()) || null;
@@ -846,6 +948,24 @@ var TursoDatabaseRepository = class {
       ]
     );
     return user;
+  }
+  async updateUser(id, patch) {
+    await this.ensureSchema();
+    const sets = [];
+    const args = [];
+    if (patch.name !== void 0) {
+      sets.push("name = ?");
+      args.push(patch.name);
+    }
+    if (patch.avatar !== void 0) {
+      sets.push("avatar = ?");
+      args.push(patch.avatar || null);
+    }
+    if (sets.length > 0) {
+      args.push(id);
+      await this.client.execute(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, args);
+    }
+    return this.findUserById(id);
   }
   async findValidSession(token) {
     await this.ensureSchema();
@@ -1485,23 +1605,26 @@ var authMiddleware = asyncHandler(async (req, res, next) => {
       }
     }
   }
-  const fallbackUser = await repo.getFallbackDemoUser();
-  if (fallbackUser) {
-    req.user = fallbackUser;
-    return next();
-  }
-  res.status(401).json({ error: "Unauthorized. Please login." });
+  res.status(401).json({ error: "Sesi login tidak valid atau telah berakhir. Silakan masuk kembali." });
+});
+apiRouter.get("/auth/config", (_req, res) => {
+  const googleClientId = getGoogleClientId();
+  res.json({
+    googleClientId: googleClientId || null,
+    googleEnabled: Boolean(googleClientId)
+  });
 });
 apiRouter.post(
   "/auth/register",
   asyncHandler(async (req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, password } = req.body || {};
     if (!name || !email || !password) {
       res.status(400).json({ error: "Nama, email, dan password wajib diisi." });
       return;
     }
     const repo = getDbRepository();
-    const existing = await repo.findUserByEmail(email);
+    const cleanEmail = String(email).trim().toLowerCase();
+    const existing = await repo.findUserByEmail(cleanEmail);
     if (existing) {
       res.status(400).json({ error: "Email sudah terdaftar." });
       return;
@@ -1509,10 +1632,10 @@ apiRouter.post(
     const userId = `user-${Date.now()}`;
     const newUser = await repo.createUser({
       id: userId,
-      name,
-      email: email.toLowerCase(),
+      name: String(name).trim(),
+      email: cleanEmail,
       created_at: (/* @__PURE__ */ new Date()).toISOString(),
-      password_hash: hashPassword(password)
+      password_hash: hashPassword(String(password))
     });
     const token = generateToken();
     await repo.createSession({
@@ -1528,14 +1651,24 @@ apiRouter.post(
 apiRouter.post(
   "/auth/login",
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
     if (!email || !password) {
       res.status(400).json({ error: "Email dan password wajib diisi." });
       return;
     }
     const repo = getDbRepository();
-    const user = await repo.findUserByEmail(email);
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    const user = await repo.findUserByEmail(String(email).trim().toLowerCase());
+    if (!user) {
+      res.status(401).json({ error: "Email atau password salah." });
+      return;
+    }
+    if (user.password_hash === "google-oauth") {
+      res.status(401).json({
+        error: "Akun ini terdaftar lewat Google. Silakan masuk menggunakan tombol Google."
+      });
+      return;
+    }
+    if (!verifyPassword(String(password), user.password_hash)) {
       res.status(401).json({ error: "Email atau password salah." });
       return;
     }
@@ -1546,6 +1679,81 @@ apiRouter.post(
       expires_at: Date.now() + 30 * 24 * 60 * 60 * 1e3
     });
     const { password_hash, ...safeUser } = user;
+    res.json({ user: safeUser, token });
+  })
+);
+apiRouter.post(
+  "/auth/google",
+  asyncHandler(async (req, res) => {
+    const { credential } = req.body || {};
+    if (!credential || typeof credential !== "string") {
+      res.status(400).json({ error: "Token kredensial Google tidak ditemukan." });
+      return;
+    }
+    const googleClientId = getGoogleClientId();
+    if (!googleClientId) {
+      res.status(500).json({
+        error: "GOOGLE_CLIENT_ID belum dikonfigurasi di server (.env atau Environment Variables)."
+      });
+      return;
+    }
+    let googleUser;
+    try {
+      googleUser = await verifyGoogleIdToken(credential, googleClientId);
+    } catch (err) {
+      res.status(401).json({ error: err?.message || "Verifikasi akun Google gagal." });
+      return;
+    }
+    const repo = getDbRepository();
+    let user = await repo.findUserByEmail(googleUser.email);
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      user = await repo.createUser({
+        id: `user-${Date.now()}`,
+        name: googleUser.name,
+        email: googleUser.email,
+        avatar: googleUser.picture,
+        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        password_hash: "google-oauth"
+      });
+    } else if (googleUser.name && googleUser.name !== user.name || googleUser.picture && googleUser.picture !== user.avatar) {
+      const updated = await repo.updateUser(user.id, {
+        name: googleUser.name || user.name,
+        avatar: googleUser.picture || user.avatar
+      });
+      if (updated) user = updated;
+    }
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: user.id,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1e3
+      // 30 days
+    });
+    const { password_hash, ...safeUser } = user;
+    res.json({ user: safeUser, token, isNewUser });
+  })
+);
+apiRouter.post(
+  "/auth/demo",
+  asyncHandler(async (_req, res) => {
+    const repo = getDbRepository();
+    let demoUser = await repo.findUserByEmail("demo@kalkuduit.id");
+    if (!demoUser) {
+      demoUser = await repo.getFallbackDemoUser();
+    }
+    if (!demoUser) {
+      res.status(404).json({ error: "Akun demo belum tersedia." });
+      return;
+    }
+    const token = generateToken();
+    await repo.createSession({
+      token,
+      user_id: demoUser.id,
+      expires_at: Date.now() + 30 * 24 * 60 * 60 * 1e3
+    });
+    const { password_hash, ...safeUser } = demoUser;
     res.json({ user: safeUser, token });
   })
 );

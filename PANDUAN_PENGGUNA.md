@@ -19,7 +19,7 @@ KalkuDuit membagi uang kamu secara otomatis menggunakan rumus:
 Saat baru membuat akun, seluruh angka dimulai dari **Rp 0** agar kamu bebas menyusunnya sesuai kondisi sendiri.
 
 1. **Masuk atau Daftar Akun**
-   - Pilih **Daftar Akun** untuk membuat akun pribadi baru, atau pilih **Coba Akun Demo** jika ingin melihat contoh data terlebih dahulu.
+   - Pilih **Daftar Akun / Masuk** secara manual dengan email & kata sandi, klik **Lanjutkan dengan Google** untuk masuk otomatis, atau pilih **Coba Akun Demo** jika ingin melihat contoh data terlebih dahulu.
 2. **Isi Target Pemasukan (P)**
    - Di halaman **Beranda**, lihat kartu hijau bagian atas.
    - Ketuk tombol **Ubah**, ketik nominal pemasukanmu (contoh: `400000`), lalu ketuk **Simpan**.
