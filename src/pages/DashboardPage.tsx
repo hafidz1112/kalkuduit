@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  BookOpen,
   X,
   Wallet
 } from 'lucide-react';
@@ -30,11 +31,13 @@ import {
 interface DashboardPageProps {
   onNavigateTab?: (tab: AppTab) => void;
   onStartTutorial?: () => void;
+  onOpenGuidebook?: () => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   onNavigateTab,
   onStartTutorial,
+  onOpenGuidebook,
 }) => {
   const { user } = useAuth();
   const {
@@ -622,6 +625,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     <span>Ekspor CSV</span>
                   </button>
                 </div>
+
+                {onOpenGuidebook && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsFlowModalOpen(false);
+                      onOpenGuidebook();
+                    }}
+                    className="w-full py-2.5 px-3 rounded-full text-[11px] font-bold text-[#113829] bg-[#EAEFE4] hover:bg-[#DCE4D5] flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Baca Buku Panduan Lengkap</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>

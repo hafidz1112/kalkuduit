@@ -5,6 +5,7 @@ import { QuickTransactionModal } from './components/QuickTransactionModal';
 import { NeedModal } from './components/NeedModal';
 import { WhatIfSimulatorModal } from './components/WhatIfSimulatorModal';
 import { OnboardingTour } from './components/OnboardingTour';
+import { GuidebookModal } from './components/GuidebookModal';
 import { DashboardPage } from './pages/DashboardPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { NeedsPage } from './pages/NeedsPage';
@@ -17,6 +18,7 @@ const MainApp: React.FC = () => {
   const { user, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [tutorialTriggerCount, setTutorialTriggerCount] = useState(0);
+  const [isGuidebookOpen, setIsGuidebookOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -43,6 +45,7 @@ const MainApp: React.FC = () => {
               <DashboardPage
                 onNavigateTab={setActiveTab}
                 onStartTutorial={() => setTutorialTriggerCount((c) => c + 1)}
+                onOpenGuidebook={() => setIsGuidebookOpen(true)}
               />
             )}
             {activeTab === 'reports' && (
@@ -55,6 +58,7 @@ const MainApp: React.FC = () => {
             {activeTab === 'profile' && (
               <ProfilePage
                 onStartTutorial={() => setTutorialTriggerCount((c) => c + 1)}
+                onOpenGuidebook={() => setIsGuidebookOpen(true)}
               />
             )}
           </main>
@@ -72,6 +76,13 @@ const MainApp: React.FC = () => {
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             manualTriggerCount={tutorialTriggerCount}
+          />
+
+          {/* User Guidebook Modal */}
+          <GuidebookModal
+            isOpen={isGuidebookOpen}
+            onClose={() => setIsGuidebookOpen(false)}
+            onStartInteractiveTour={() => setTutorialTriggerCount((c) => c + 1)}
           />
         </div>
       </div>

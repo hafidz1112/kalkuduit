@@ -4,6 +4,7 @@ import { useFinance } from '../context/FinanceContext';
 import { exportWeeklyRecapToCSV } from '../lib/export';
 import {
   HelpCircle,
+  BookOpen,
   Download,
   RotateCcw,
   Layers,
@@ -16,9 +17,13 @@ import {
 
 interface ProfilePageProps {
   onStartTutorial: () => void;
+  onOpenGuidebook: () => void;
 }
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ onStartTutorial }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({
+  onStartTutorial,
+  onOpenGuidebook,
+}) => {
   const { user, logout } = useAuth();
   const {
     periodMode,
@@ -86,6 +91,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onStartTutorial }) => 
 
       {/* Menu Actions */}
       <div className="rounded-3xl bg-white border border-[#E6E5DD] divide-y divide-[#EFEFE8] overflow-hidden">
+        <button
+          type="button"
+          onClick={onOpenGuidebook}
+          className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-[#FAF8F5] transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-[#EAEFE4] text-[#113829] flex items-center justify-center">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-[#14221C] block">Buku Panduan Pengguna</span>
+              <span className="text-[11px] text-[#68736E]">Penjelasan lengkap menu, rumus & FAQ</span>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-[#8E9691]" />
+        </button>
+
         <button
           type="button"
           onClick={onStartTutorial}
