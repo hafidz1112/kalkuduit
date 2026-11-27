@@ -181,8 +181,8 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#F3F1EC] flex justify-center">
-      <div className="w-full max-w-[440px] min-h-[100dvh] bg-[#113829] text-white flex flex-col justify-between gap-4 px-4 pt-4 pb-6 sm:shadow-2xl overflow-y-auto">
+    <div className="min-h-[100dvh] bg-[#113829] sm:bg-[#F3F1EC] flex justify-center">
+      <div className="w-full max-w-[440px] min-h-[100dvh] bg-[#113829] text-white flex flex-col justify-center gap-5 px-4 py-6 sm:shadow-2xl">
         {/* Top Hero Branding */}
         <div className="space-y-2 shrink-0">
           <div className="flex items-center justify-between">
